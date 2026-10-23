@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" role="img" aria-label="LazyQC logo">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#3730a3"/>
+      <stop offset="1" stop-color="#7c3aed"/>
+    </linearGradient>
+  </defs>
+  <rect width="256" height="256" rx="56" fill="url(#bg)"/>
+  <!-- Bloch sphere -->
+  <circle cx="116" cy="146" r="74" fill="#ffffff" fill-opacity="0.08" stroke="#ffffff" stroke-width="7"/>
+  <ellipse cx="116" cy="146" rx="74" ry="23" fill="none" stroke="#ffffff" stroke-opacity="0.65"
+           stroke-width="5" stroke-dasharray="11 9" stroke-linecap="round"/>
+  <!-- state vector -->
+  <line x1="116" y1="146" x2="160" y2="94" stroke="#fbbf24" stroke-width="8" stroke-linecap="round"/>
+  <circle cx="160" cy="94" r="11" fill="#fbbf24"/>
+  <circle cx="116" cy="146" r="7" fill="#ffffff"/>
+  <!-- lazy z's -->
+  <polyline points="176,62 194,62 176,80 194,80" fill="none" stroke="#fde68a" stroke-width="6"
+            stroke-linecap="round" stroke-linejoin="round"/>
+  <polyline points="204,28 230,28 204,54 230,54" fill="none" stroke="#fde68a" stroke-width="7"
+            stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

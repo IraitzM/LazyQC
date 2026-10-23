@@ -1,0 +1,70 @@
+[build-system]
+requires = ["hatchling>=1.27,<2"]
+build-backend = "hatchling.build"
+
+[project]
+name = "lazyqc"
+version = "0.1.0"
+description = "Lazy, observable-driven quantum simulation with Qulacs"
+readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+authors = [{ name = "Iraitz Montalbán" }]
+requires-python = ">=3.12"
+dependencies = ["numpy>=2,<3", "qulacs>=0.6.12,<0.7", "scipy>=1.14,<2"]
+keywords = ["quantum", "simulation", "lazy evaluation", "circuit cutting", "zx-calculus", "qulacs"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: MacOS",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Physics",
+]
+
+[project.urls]
+Homepage = "https://github.com/IraitzM/LazyQC"
+Repository = "https://github.com/IraitzM/LazyQC"
+Issues = "https://github.com/IraitzM/LazyQC/issues"
+
+[project.optional-dependencies]
+zx = [
+    "pyzx>=0.10.3,<0.11",
+]
+cutting = [
+    "qiskit-addon-cutting>=0.10,<0.11",
+]
+tensor = [
+    "cotengra>=0.7,<1",
+    "quimb>=1.11,<2",
+]
+mqt = [
+    # Mutually compatible series: mqt-ddsim 2.6 requires mqt-core <3.11,
+    # so Core v4 QIR features are out of scope for this extra.
+    "mqt.core>=3.10,<3.11",
+    "mqt.ddsim>=2.6,<2.7",
+    "mqt.qcec>=3.10,<3.11",
+    "mqt.bench>=2.3,<2.4",
+]
+
+[dependency-groups]
+dev = ["pytest>=8,<10", "ruff>=0.12,<1"]
+notebooks = [
+    "ipykernel>=7.3.0",
+    "matplotlib>=3.8",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
+
+[tool.hatch.build.targets.sdist]
+include = ["/src/lazyqc", "/README.md", "/LICENSE", "/CITATION.cff"]

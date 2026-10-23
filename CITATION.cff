@@ -1,0 +1,27 @@
+cff-version: 1.2.0
+message: "If you use LazyQC in your research, please cite the paper below."
+title: "LazyQC"
+abstract: "Lazy, observable-driven quantum simulation and batch planning with Qulacs."
+type: software
+version: 0.1.0
+license: Apache-2.0
+repository-code: "https://github.com/IraitzM/LazyQC"
+authors:
+  - family-names: "Montalbán"
+    given-names: "Iraitz"
+    affiliation: "University of Oviedo"
+keywords:
+  - quantum circuit simulation
+  - lazy evaluation
+  - query planning
+  - circuit cutting
+  - ZX-calculus
+preferred-citation:
+  type: article
+  title: "LazyQC: Lazy Planning for Batched Quantum Result Queries"
+  authors:
+    - family-names: "Montalbán"
+      given-names: "Iraitz"
+      affiliation: "University of Oviedo"
+  year: 2026
+  # TODO: add journal, volume and doi once the paper is published
