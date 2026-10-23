@@ -22,7 +22,7 @@ def reference(program, observables):
 @pytest.mark.parametrize("strategy", STRATEGIES)
 @pytest.mark.parametrize("fixture", ["initial.json", "uncomputation.json"])
 def test_golden_fixtures(strategy, fixture):
-    data, cases = load_fixture(ROOT / "benchmarks" / fixture)
+    data, cases = load_fixture(ROOT / "tests/fixtures" / fixture)
     for case in cases:
         requests = build_requests(case)
         result = plan_all(requests, strategy=strategy).collect()

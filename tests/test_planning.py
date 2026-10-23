@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def initial_requests():
-    _, cases = load_fixture(ROOT / "benchmarks" / "initial.json")
+    _, cases = load_fixture(ROOT / "tests/fixtures/initial.json")
     return build_requests(cases[0])
 
 

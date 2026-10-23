@@ -2,10 +2,10 @@
 
 import pytest
 
-qiskit = pytest.importorskip("qiskit")
-
 from lazyqc import plan_all
 from lazyqc.frontends import from_mqt_core, from_qiskit
+
+qiskit = pytest.importorskip("qiskit")
 
 
 def test_bell_translates_and_collects():

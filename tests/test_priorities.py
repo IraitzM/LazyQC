@@ -27,7 +27,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def local_batch():
-    fixture = json.loads((ROOT / "benchmarks/p4_p5.json").read_text())
+    fixture = json.loads((ROOT / "tests/fixtures/p4_p5.json").read_text())
     case = next(c for c in fixture["cases"] if c["name"] == "local_pauli_batch16")
     return build_requests(case), CutOptions(max_fragment_qubits=3, **fixture["cut_limits"])
 

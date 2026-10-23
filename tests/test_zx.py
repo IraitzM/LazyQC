@@ -201,7 +201,7 @@ def test_explicit_failure_falls_back(monkeypatch, failure):
 def test_explicit_uncomputation_controls_and_empty():
     from pathlib import Path
 
-    _, cases = load_fixture(Path(__file__).resolve().parents[1] / "benchmarks/uncomputation.json")
+    _, cases = load_fixture(Path(__file__).parent / "fixtures/uncomputation.json")
     values = []
     for case in cases:
         requests = build_requests(case)
