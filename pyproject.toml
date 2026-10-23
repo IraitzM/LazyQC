@@ -50,7 +50,11 @@ mqt = [
 ]
 
 [dependency-groups]
-dev = ["pytest>=8,<10", "ruff>=0.12,<1"]
+dev = [
+    "commitizen>=4.19.2",
+    "pytest>=8,<10",
+    "ruff>=0.12,<1",
+]
 notebooks = [
     "ipykernel>=7.3.0",
     "matplotlib>=3.8",
