@@ -144,18 +144,23 @@ def profile_sensitivity(
             )
             for j, i in enumerate(indices):
                 jacobian[k][j] = row.get(i, 0.0)
-        else:
-            for j, i in enumerate(indices):
-                if relevant[k][j]:
-                    for sign in (1, -1):
-                        gates = list(operations)
-                        angle = gates[i].angle
-                        if abs(angle) > 8 * pi:
-                            raise ValueError("Sensitivity profiling supports angles within 8*pi")
-                        gates[i] = replace(gates[i], angle=angle + sign * pi / 2)
-                        variant = Program(program.qubits, tuple(gates))
-                        shifted.append(variant.expectation(observable))
-                        positions.append((k, j, sign))
+    for j, i in enumerate(indices):
+        outputs = tuple(
+            k for k in range(len(observables))
+            if methods[k] == "shift" and relevant[k][j]
+        )
+        if not outputs:
+            continue
+        for sign in (1, -1):
+            gates = list(operations)
+            angle = gates[i].angle
+            if abs(angle) > 8 * pi:
+                raise ValueError("Sensitivity profiling supports angles within 8*pi")
+            gates[i] = replace(gates[i], angle=angle + sign * pi / 2)
+            variant = Program(program.qubits, tuple(gates))
+            for k in outputs:
+                shifted.append(variant.expectation(observables[k]))
+                positions.append((k, j, sign))
     if shifted:
         plan = plan_all(shifted, **planning_options)
         values = plan.collect(**({"session": session} if session is not None else {})).values
