@@ -7,8 +7,8 @@ import numpy as np
 import pytest
 from reference_numpy import expectation, statevector
 
-from lazyqc import Gate, Parameter, Program, plan_all
-from lazyqc.sensitivity import plan_approximate, profile_sensitivity
+from lazyqc import Gate, Parameter, Program, adjoint_gradient, plan_all, profile_sensitivity
+from lazyqc.sensitivity import plan_approximate
 
 
 def oracle(program, observable):
@@ -27,6 +27,48 @@ def test_shared_parameter_requires_occurrence_shifts():
     partial = profile_sensitivity(p, [{0: "Z"}], [0], evaluation_error=1e-12)
     with pytest.raises(ValueError, match="every occurrence"):
         partial.parameter_gradient("t")
+
+
+def test_cone_local_adjoint_and_weighted_parameter_gradient_match_shifts():
+    p = (
+        Program(3)
+        .ry(0, Parameter("theta"))
+        .cx(0, 1)
+        .rz(1, Parameter("theta"))
+        .ry(2, Parameter("phi"))
+        .cx(1, 2)
+        .bind(theta=0.31, phi=-0.27)
+    )
+    observables = ({0: "Z"}, {1: "X"}, {0: "Z"})
+    weights = (0.4, -1.2, 0.3)
+    shifts = profile_sensitivity(p, observables, [0, 2, 3], evaluation_error=1e-12)
+    adjoint = profile_sensitivity(
+        p, observables, [0, 2, 3], evaluation_error=1e-12, method="adjoint"
+    )
+    assert adjoint.shifted_requests == 0
+    assert adjoint.methods == ("adjoint",) * len(observables)
+    np.testing.assert_allclose(adjoint.jacobian, shifts.jacobian, atol=1e-12)
+    expected = tuple(
+        sum(weight * row[j] for weight, row in zip(weights, shifts.jacobian, strict=True))
+        for j in range(len(shifts.gate_indices))
+    )
+    actual = adjoint_gradient(p, observables, weights)
+    assert actual["theta"] == pytest.approx(expected[0] + expected[1], abs=1e-12)
+    assert actual["phi"] == pytest.approx(expected[2], abs=1e-12)
+
+
+def test_auto_selects_adjoint_per_cone_when_it_reduces_state_sweeps():
+    p = Program(2).ry(0, 0.2).rz(0, -0.3).ry(1, 0.4)
+    profile = profile_sensitivity(
+        p, [{0: "Z"}, {1: "Z"}], [0, 1, 2], evaluation_error=1e-12, method="auto"
+    )
+    assert profile.methods == ("adjoint", "shift")
+    reference = profile_sensitivity(p, [{0: "Z"}, {1: "Z"}], [0, 1, 2], evaluation_error=1e-12)
+    np.testing.assert_allclose(profile.jacobian, reference.jacobian, atol=1e-12)
+    with pytest.raises(ValueError, match="method"):
+        profile_sensitivity(
+            p, [{0: "Z"}], [0], evaluation_error=1e-12, method="unknown"
+        )
 
 
 def test_stationary_point_and_simultaneous_curvature():
@@ -54,6 +96,10 @@ def test_random_jacobian_and_composed_bounds_against_dense_oracle(seed):
     indices = [i for i, g in enumerate(gates) if g.name.startswith("R")]
     obs = ({0: "Y", 2: "X"}, {1: "Z"}, {})
     profile = profile_sensitivity(p, obs, indices, evaluation_error=1e-11)
+    adjoint = profile_sensitivity(
+        p, obs, indices, evaluation_error=1e-11, method="adjoint"
+    )
+    np.testing.assert_allclose(adjoint.jacobian, profile.jacobian, atol=1e-12)
     reference = np.array([oracle(p, o) for o in obs])
     for j, i in enumerate(indices):
         shifted = []

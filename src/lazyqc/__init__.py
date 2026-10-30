@@ -37,6 +37,7 @@ from .ir import Gate, Parameter, Pauli, Program, Request
 from .isolation import PlanningResourceError, plan_isolated
 from .planner import NoFeasiblePlan, plan_all
 from .rewrites import ZXOptions
+from .sensitivity import adjoint_gradient, profile_sensitivity
 from .session import ExecutionSession
 
 __all__ = [
@@ -56,6 +57,8 @@ __all__ = [
     "Request",
     "NoFeasiblePlan",
     "plan_all",
+    "adjoint_gradient",
+    "profile_sensitivity",
     "collect_all",
 ]
 
@@ -82,4 +85,3 @@ def collect_all(requests, **planning_options):
         1.0
     """
     return plan_all(requests, **planning_options).collect()
-

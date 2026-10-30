@@ -1,9 +1,10 @@
-"""Opt-in, occurrence-wise sensitivity and bounded zero-angle candidate planning.
+"""Opt-in occurrence gradients and bounded zero-angle candidate planning.
 
-Profiling explicitly executes shifted circuits. Ordinary plan_all remains exact and
-lazy. Bounds concern norm-one terminal Paulis and assume the caller's evaluation
-error allowance; they are not interval-arithmetic certificates. A profile is valid
-only at its stored program, bindings and observables, never across optimizer steps.
+Profiling can use parameter shifts or cone-local adjoint backpropagation. Ordinary
+plan_all remains exact and lazy. Bounds concern norm-one terminal Paulis and assume
+the caller's evaluation error allowance; they are not interval-arithmetic
+certificates. A profile is valid only at its stored program, bindings and observables,
+never across optimizer steps.
 """
 
 from dataclasses import dataclass, replace
@@ -44,6 +45,7 @@ class SensitivityProfile:
     evaluation_error: float
     shifted_requests: int
     elapsed_ns: int
+    methods: tuple[str, ...] = ()
 
     def parameter_gradient(self, name):
         """Sum occurrences of a bound symbolic parameter; require complete coverage."""
@@ -64,7 +66,8 @@ class SensitivityProfile:
 
         Each first and mixed second derivative with respect to Pauli-rotation
         occurrences has magnitude <= 1. Taylor's integral remainder is <= L^2/2.
-        Each two-shift derivative has error <= evaluation_error, conditionally.
+        Shift-derived derivatives use the caller's per-evaluation error allowance;
+        for adjoint-derived entries, evaluation_error is the assumed derivative error.
         Gates outside the original structural cone cannot affect the output after
         changing angles alone. Identity/unmodified outputs have zero change.
         """
@@ -86,16 +89,29 @@ class SensitivityProfile:
 
 
 def profile_sensitivity(
-    program, observables, gate_indices, *, evaluation_error, session=None, **planning_options
+    program,
+    observables,
+    gate_indices,
+    *,
+    evaluation_error,
+    method="shift",
+    session=None,
+    **planning_options,
 ):
-    """Execute two shifts per relevant rotation occurrence, batched across outputs.
+    """Profile occurrence gradients using shifts or cone-local adjoint backpropagation.
 
-    evaluation_error is an explicit assumed absolute error per evaluated expectation.
+    evaluation_error is the assumed absolute error allowance for gradient entries.
+    For shifts this derives from the expectation-evaluation error; for adjoint
+    entries the caller supplies an absolute derivative-error allowance.
     max_state_* and workers options are forwarded to the ordinary planner. Callers
     own any persistent ExecutionSession and must account for its startup/shutdown.
+    ``auto`` selects adjoint when its estimated three state sweeps are cheaper than
+    the two-shift sweeps for the selected rotations in each observable cone.
     """
     start = perf_counter_ns()
     evaluation_error = _nonnegative(evaluation_error, "evaluation_error")
+    if method not in ("shift", "adjoint", "auto"):
+        raise ValueError("method must be 'shift', 'adjoint' or 'auto'")
     indices = tuple(gate_indices)
     operations = program.resolved_operations()
     if len(set(indices)) != len(indices) or any(
@@ -110,19 +126,36 @@ def profile_sensitivity(
     cones = tuple(_cone_indices(operations, o) for o in observables)
     relevant = tuple(tuple(i in cone for i in indices) for cone in cones)
     shifted, positions = [], []
-    for j, i in enumerate(indices):
-        for sign in (1, -1):
-            gates = list(operations)
-            angle = gates[i].angle
-            if abs(angle) > 8 * pi:
-                raise ValueError("Sensitivity profiling supports angles within 8*pi")
-            gates[i] = replace(gates[i], angle=angle + sign * pi / 2)
-            variant = Program(program.qubits, tuple(gates))
-            for k, observable in enumerate(observables):
-                if relevant[k][j]:
-                    shifted.append(variant.expectation(observable))
-                    positions.append((k, j, sign))
+    methods = []
     jacobian = [[0.0] * len(indices) for _ in observables]
+    for k, observable in enumerate(observables):
+        selected = sum(relevant[k])
+        use_adjoint = method == "adjoint" or (
+            method == "auto" and selected > 0 and 2 * selected > 3
+        )
+        selected_method = "adjoint" if use_adjoint else "shift"
+        methods.append(selected_method)
+        if use_adjoint:
+            row = _adjoint_task_gradient(
+                operations,
+                _cone_wires(operations, observable, cones[k]),
+                cones[k],
+                ((1.0, observable),),
+            )
+            for j, i in enumerate(indices):
+                jacobian[k][j] = row.get(i, 0.0)
+        else:
+            for j, i in enumerate(indices):
+                if relevant[k][j]:
+                    for sign in (1, -1):
+                        gates = list(operations)
+                        angle = gates[i].angle
+                        if abs(angle) > 8 * pi:
+                            raise ValueError("Sensitivity profiling supports angles within 8*pi")
+                        gates[i] = replace(gates[i], angle=angle + sign * pi / 2)
+                        variant = Program(program.qubits, tuple(gates))
+                        shifted.append(variant.expectation(observable))
+                        positions.append((k, j, sign))
     if shifted:
         plan = plan_all(shifted, **planning_options)
         values = plan.collect(**({"session": session} if session is not None else {})).values
@@ -139,7 +172,84 @@ def profile_sensitivity(
         evaluation_error,
         len(shifted),
         perf_counter_ns() - start,
+        tuple(methods),
     )
+
+
+def _cone_wires(operations, observable, cone):
+    """Return all logical wires retained by a backward structural cone."""
+    wires = {q for q, _ in observable.factors}
+    for i in cone:
+        wires.update(operations[i].qubits)
+    return tuple(sorted(wires))
+
+
+def _adjoint_task_gradient(operations, wires, cone, weighted_observables):
+    """Backpropagate a weighted Pauli sum through one compact local cone."""
+    from qulacs import Observable, ParametricQuantumCircuit
+
+    if not any(weight and observable.factors for weight, observable in weighted_observables):
+        return {}
+    mapping = {q: i for i, q in enumerate(wires)}
+    circuit = ParametricQuantumCircuit(len(wires))
+    parameter_gates = []
+    for i, gate in enumerate(operations):
+        if i not in cone:
+            continue
+        qs = [mapping[q] for q in gate.qubits]
+        if gate.name == "CX":
+            circuit.add_CNOT_gate(*qs)
+        elif gate.name in ROTATIONS:
+            # Qulacs rotates with the opposite sign to LazyQC's IR convention.
+            getattr(circuit, f"add_parametric_{gate.name}_gate")(qs[0], -gate.angle)
+            parameter_gates.append(i)
+        else:
+            getattr(circuit, f"add_{gate.name}_gate")(qs[0])
+    combined = Observable(len(wires))
+    for weight, observable in weighted_observables:
+        if weight and observable.factors:
+            pauli = " ".join(f"{axis} {mapping[q]}" for q, axis in observable.factors)
+            combined.add_operator(weight, pauli)
+    gradients = circuit.backprop(combined)
+    return {i: -gradient for i, gradient in zip(parameter_gates, gradients, strict=True)}
+
+
+def adjoint_gradient(program, observables, weights):
+    """Return bound symbolic-parameter gradients of a weighted expectation loss.
+
+    Observables with identical structural cones share one local parametric circuit
+    and one Qulacs backpropagation. Contributions are summed across cones and across
+    every occurrence of a reused symbolic parameter.
+    """
+    operations = program.resolved_operations()
+    requests = tuple(program.expectation(observable) for observable in observables)
+    weights = tuple(finite_angle(weight) for weight in weights)
+    if not requests or len(requests) != len(weights):
+        raise ValueError("A finite weight is required for each observable")
+    parameters = {
+        gate.angle.name for gate in program.operations if isinstance(gate.angle, Parameter)
+    }
+    if not parameters:
+        raise ValueError("Program must contain at least one symbolic parameter")
+    contributions = {name: [] for name in parameters}
+    tasks = {}
+    for request, weight in zip(requests, weights, strict=True):
+        if not weight or not request.observable.factors:
+            continue
+        cone = _cone_indices(operations, request.observable)
+        wires = _cone_wires(operations, request.observable, cone)
+        key = (wires, tuple(sorted(cone)))
+        tasks.setdefault(key, []).append((weight, request.observable))
+    for (wires, cone), terms in tasks.items():
+        gradients = _adjoint_task_gradient(operations, wires, set(cone), terms)
+        for i, gradient in gradients.items():
+            angle = program.operations[i].angle
+            if isinstance(angle, Parameter):
+                contributions[angle.name].append(gradient)
+    contributions = {name: fsum(values) for name, values in contributions.items()}
+    if any(not isfinite(value) for value in contributions.values()):
+        raise ArithmeticError("Nonfinite adjoint gradient")
+    return contributions
 
 
 @dataclass(frozen=True)
