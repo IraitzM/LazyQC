@@ -13,7 +13,7 @@ from math import fsum, isfinite, pi
 from time import perf_counter_ns
 
 from .ir import ROTATIONS, Parameter, Program, finite_angle
-from .planner import NoFeasiblePlan, plan_all
+from .planner import NoFeasiblePlan, plan_all, validate_limits
 
 
 def _nonnegative(value, name):
@@ -136,9 +136,11 @@ def profile_sensitivity(
         selected_method = "adjoint" if use_adjoint else "shift"
         methods.append(selected_method)
         if use_adjoint and selected:
+            wires = _cone_wires(operations, observable, cones[k])
+            _validate_adjoint_limits(wires, planning_options)
             row = _adjoint_task_gradient(
                 operations,
-                _cone_wires(operations, observable, cones[k]),
+                wires,
                 cones[k],
                 ((1.0, observable),),
             )
@@ -179,6 +181,28 @@ def profile_sensitivity(
         perf_counter_ns() - start,
         tuple(methods),
     )
+
+
+def _validate_adjoint_limits(wires, planning_options):
+    """Reject adjoint state-vector tasks that exceed planner resource limits."""
+    max_state_qubits = planning_options.get("max_state_qubits", 24)
+    max_state_bytes = planning_options.get("max_state_bytes", 256 * 2**20)
+    validate_limits(planning_options.get("workers", 1), max_state_qubits, max_state_bytes)
+    total_state_bytes = planning_options.get("total_state_bytes")
+    if total_state_bytes is not None and (
+        type(total_state_bytes) is not int or total_state_bytes < 1
+    ):
+        raise ValueError("total_state_bytes must be a positive integer")
+    state_bytes = 16 * (1 << len(wires))
+    byte_limit = min(
+        max_state_bytes,
+        total_state_bytes if total_state_bytes is not None else max_state_bytes,
+    )
+    if len(wires) > max_state_qubits or state_bytes > byte_limit:
+        raise NoFeasiblePlan(
+            f"Adjoint task width {len(wires)} requires {state_bytes} bytes, exceeding "
+            f"limits of {max_state_qubits} qubits and {byte_limit} bytes"
+        )
 
 
 def _cone_wires(operations, observable, cone):

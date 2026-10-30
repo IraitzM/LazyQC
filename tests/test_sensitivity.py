@@ -7,7 +7,15 @@ import numpy as np
 import pytest
 from reference_numpy import expectation, statevector
 
-from lazyqc import Gate, Parameter, Program, adjoint_gradient, plan_all, profile_sensitivity
+from lazyqc import (
+    Gate,
+    NoFeasiblePlan,
+    Parameter,
+    Program,
+    adjoint_gradient,
+    plan_all,
+    profile_sensitivity,
+)
 from lazyqc.sensitivity import plan_approximate
 
 
@@ -68,6 +76,23 @@ def test_auto_selects_adjoint_per_cone_when_it_reduces_state_sweeps():
     with pytest.raises(ValueError, match="method"):
         profile_sensitivity(
             p, [{0: "Z"}], [0], evaluation_error=1e-12, method="unknown"
+        )
+
+
+@pytest.mark.parametrize(
+    "method,limits",
+    [
+        ("adjoint", {"max_state_qubits": 1}),
+        ("adjoint", {"max_state_bytes": 63}),
+        ("adjoint", {"total_state_bytes": 63}),
+        ("auto", {"max_state_qubits": 1}),
+    ],
+)
+def test_adjoint_respects_planner_state_limits(method, limits):
+    p = Program(2).ry(0, 0.2).cx(0, 1).rz(1, 0.3)
+    with pytest.raises(NoFeasiblePlan, match="Adjoint task"):
+        profile_sensitivity(
+            p, [{1: "Z"}], [0, 2], evaluation_error=1e-12, method=method, **limits
         )
 
 
