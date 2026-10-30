@@ -135,7 +135,7 @@ def profile_sensitivity(
         )
         selected_method = "adjoint" if use_adjoint else "shift"
         methods.append(selected_method)
-        if use_adjoint:
+        if use_adjoint and selected:
             row = _adjoint_task_gradient(
                 operations,
                 _cone_wires(operations, observable, cones[k]),
