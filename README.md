@@ -12,7 +12,7 @@
   <a href="https://github.com/IraitzM/LazyQC/stargazers"><img src="https://img.shields.io/github/stars/IraitzM/LazyQC?style=social" alt="GitHub stars"></a>
 </p>
 
-LazyQC is an open-source Python framework for lazy, observable-driven quantum simulation. You describe programs and request expectation values first; LazyQC plans the whole batch (observable cones, shared preparations, optional ZX rewrites and exact CX cuts under memory limits) and only runs the native [Qulacs](https://github.com/qulacs/qulacs) simulation when you call `collect()`.
+LazyQC is a Python framework for lazy, observable-driven quantum simulation (v0.2.0). You describe programs and request expectation values first; LazyQC plans the batch (observable cones, shared preparations, ZX rewrites, and exact CX cuts under memory limits) and only runs the native [Qulacs](https://github.com/qulacs/qulacs) simulation when you call `collect()`.
 
 ## Installation
 
@@ -113,8 +113,7 @@ If you use LazyQC in your research, please cite the accompanying paper (see also
 @article{montalban2026lazyqc,
   title   = {LazyQC: Lazy Planning for Batched Quantum Result Queries},
   author  = {Montalb{\'a}n, Iraitz},
-  journal = {TODO},
   year    = {2026},
-  doi     = {TODO}
+  note    = {arXiv preprint; journal and DOI to be added upon publication}
 }
 ```
