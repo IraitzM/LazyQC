@@ -172,3 +172,103 @@ def from_mqt_core(computation, observables, **options):
     from qiskit import qasm2
 
     return from_qiskit(qasm2.loads(qasm), observables, **options)
+
+
+def _wrap_angle(angle):
+    """Map an angle to (-pi, pi], as the numeric translation does."""
+    angle = float(angle) % (2 * pi)
+    return angle - 2 * pi if angle > pi else angle
+
+
+def _lower_u(circuit):
+    """Rewrite top-level ``u`` gates as ``rz, ry, rz``.
+
+    Qiskit's symbolic basis translation of ``u(theta, phi, lambda)`` with several free
+    parameters costs about 30 ms per gate, while this rewrite is exact up to the global
+    phase ``exp(i (phi + lambda) / 2)``, which no expectation value sees.
+    """
+    if not any(
+        inst.operation.name == "u"
+        and any(getattr(a, "parameters", ()) for a in inst.operation.params)
+        for inst in circuit.data
+    ):
+        return circuit
+    rewritten = circuit.copy_empty_like()
+    for inst in circuit.data:
+        if inst.operation.name != "u":
+            rewritten.append(inst.operation, inst.qubits, inst.clbits)
+            continue
+        theta, phi, lam = inst.operation.params
+        qubit = inst.qubits[0]
+        rewritten.rz(lam, qubit)
+        rewritten.ry(theta, qubit)
+        rewritten.rz(phi, qubit)
+    return rewritten
+
+
+class ParametricTemplate:
+    """A circuit translated once to the IR basis, with angles bound per parameter row.
+
+    Transpiling is the expensive step, so it runs a single time on the symbolic
+    circuit. Each gate keeps either a number or an expression of the circuit
+    parameters, and `program(row)` evaluates them for one row of values.
+    """
+
+    def __init__(self, circuit):
+        """Translate `circuit` once; it may have free parameters but no measurements."""
+        qiskit = _require_qiskit()
+        if not isinstance(circuit, qiskit.QuantumCircuit):
+            raise ValueError("Expected a Qiskit QuantumCircuit")
+        translated = _to_basis(_lower_u(_strip_measurements(circuit, False)))
+        self.n_qubits = len(translated.qubits)
+        self.parameters = tuple(circuit.parameters)
+        position = {p: i for i, p in enumerate(self.parameters)}
+        index_of = {bit: i for i, bit in enumerate(translated.qubits)}
+        self.translated_ops = []
+        self._gates = []
+        for inst in translated.data:
+            name = inst.operation.name
+            if name in _DROPPED:
+                continue
+            qubits = tuple(index_of[q] for q in inst.qubits)
+            params = getattr(inst.operation, "params", ())
+            source = None
+            if params:
+                angle = params[0]
+                free = sorted(getattr(angle, "parameters", ()), key=lambda p: position[p])
+                if not free:
+                    source = ("value", _wrap_angle(angle))
+                elif len(free) == 1 and str(angle) == free[0].name:
+                    source = ("plain", position[free[0]])
+                else:
+                    source = ("expression", angle, tuple((p, position[p]) for p in free))
+            self.translated_ops.append(_BASIS_IR[name])
+            # Gates whose angle does not depend on the row are immutable and shared by every row.
+            fixed = None
+            if source is None:
+                fixed = Gate(_BASIS_IR[name], qubits)
+            elif source[0] == "value":
+                fixed = Gate(_BASIS_IR[name], qubits, source[1])
+            self._gates.append((_BASIS_IR[name], qubits, source, fixed))
+
+    def program(self, row=()):
+        """Return the IR program for one row of parameter values."""
+        operations = []
+        for name, qubits, source, fixed in self._gates:
+            if fixed is not None:
+                operations.append(fixed)
+            elif source[0] == "plain":
+                operations.append(Gate(name, qubits, _wrap_angle(row[source[1]])))
+            else:
+                bound = source[1].bind({p: float(row[i]) for p, i in source[2]})
+                operations.append(Gate(name, qubits, _wrap_angle(bound)))
+        return Program(self.n_qubits, tuple(operations))
+
+
+def __getattr__(name):
+    """Expose `Estimator` lazily so importing the frontend never imports Qiskit primitives."""
+    if name == "Estimator":
+        from .qiskit_estimator import Estimator
+
+        return Estimator
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
