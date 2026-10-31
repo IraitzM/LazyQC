@@ -9,6 +9,7 @@ from .ir import Request
 from .passes import cone_indices
 from .plan import Candidate, Plan, Task
 from .rewrites import ZXOptions, optimizer_identity, rewrite_programs
+from .sums import expand_requests
 from .tensor_cost import mps_max_bond
 
 STRATEGIES = ("full", "separate", "grouped", "mps", "auto")
@@ -307,6 +308,27 @@ def plan_all(
         ValueError: If requests or planning options are invalid.
         NoFeasiblePlan: If no candidate satisfies the requested limits.
     """
+    requests = tuple(requests)
+    expanded, layout = expand_requests(requests)
+    if layout is not None:
+        from .sums import SumPlan
+
+        inner = plan_all(
+            expanded,
+            strategy=strategy,
+            max_state_qubits=max_state_qubits,
+            max_state_bytes=max_state_bytes,
+            cost_model=cost_model,
+            cache=cache,
+            optimization=optimization,
+            zx_options=zx_options,
+            cutting=cutting,
+            workers=workers,
+            total_state_bytes=total_state_bytes,
+            select=select,
+            analysis=analysis,
+        )
+        return SumPlan(inner, layout)
     if select is not None and select != "lifetime":
         raise ValueError("select must be None or 'lifetime'")
     if select == "lifetime" and cutting is None and workers == 1 and total_state_bytes is None:

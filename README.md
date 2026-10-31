@@ -59,6 +59,21 @@ print(plan.explain())
 print(plan.collect().values)  # native simulation happens here
 ```
 
+### Weighted sums of Pauli terms
+
+A Hamiltonian is a list of `(coefficient, term)` pairs. LazyQC plans the terms
+together, so terms whose cones coincide share one simulation, and returns the
+weighted sum as a single value. Coefficients are real; `Pauli()` is the identity.
+
+```python
+hamiltonian = program.expectation([
+    (0.5, {0: "Z"}),
+    (-1.0, {0: "X", 1: "X"}),
+    (2.0, {}),  # identity offset
+])
+print(plan_all([hamiltonian]).collect().values)  # one value for the whole sum
+```
+
 ## Gradients
 
 For bound symbolic parameters, `adjoint_gradient` computes a weighted scalar-loss
