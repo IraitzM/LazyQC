@@ -41,6 +41,24 @@ print(plan.explain())
 print(plan.collect().values)  # native simulation happens here
 ```
 
+## Gradients
+
+For bound symbolic parameters, `adjoint_gradient` computes a weighted scalar-loss
+gradient with Qulacs backpropagation inside each observable's causal cone. Observables
+with the same cone share a backpropagation:
+
+```python
+from lazyqc import Parameter, Program, adjoint_gradient
+
+theta = Parameter("theta")
+program = Program(2).ry(0, theta).cx(0, 1).rz(1, theta).bind(theta=0.4)
+gradient = adjoint_gradient(program, [{0: "Z"}, {1: "X"}], [0.7, -0.2])
+print(gradient["theta"])
+```
+
+`profile_sensitivity(..., method="adjoint")` computes occurrence-wise derivatives;
+`method="auto"` selects shifts or adjoint independently for each observable cone.
+
 More examples live in [`examples/`](https://github.com/IraitzM/LazyQC/blob/main/examples) and [`notebooks/`](https://github.com/IraitzM/LazyQC/blob/main/notebooks), and design notes and results in [`docs/`](https://github.com/IraitzM/LazyQC/blob/main/docs).
 
 ## Development
