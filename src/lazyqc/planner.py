@@ -9,8 +9,9 @@ from .ir import Request
 from .passes import cone_indices
 from .plan import Candidate, Plan, Task
 from .rewrites import ZXOptions, optimizer_identity, rewrite_programs
+from .tensor_cost import mps_max_bond
 
-STRATEGIES = ("full", "separate", "grouped", "auto")
+STRATEGIES = ("full", "separate", "grouped", "mps", "auto")
 ANALYSES = ("budgeted", "always")
 # Host defaults fitted by benchmarks/calibrate_analysis_budget.py: dense serial
 # execution (per program, per gate, per amplitude-gate, per amplitude-output)
@@ -104,6 +105,29 @@ def _analyze(requests, strategy):
     if strategy in ("grouped", "auto"):
         candidates.append(Candidate("grouped", grouped_tasks(cone_groups.values())))
     return _Analysis(tuple(candidates), tuple(constants))
+
+
+def _mps_candidate(candidates, max_state_bytes):
+    """Build the exact-MPS candidate from the whole-program (full) tasks.
+
+    Each task keeps all wires and gates and is tagged with the bond that exact
+    MPS execution reaches, predicted without contracting. The candidate is
+    rejected only when its tensor payload would exceed the byte limit.
+    """
+    full = next((c for c in candidates if c.strategy == "full" and c.optimization == "none"), None)
+    if full is None or not full.tasks:
+        return None
+    tasks = tuple(replace(t, bond=mps_max_bond(t.width, t.operations)) for t in full.tasks)
+    candidate = Candidate("mps", tasks)
+    if candidate.state_bytes > max_state_bytes:
+        candidate = replace(
+            candidate,
+            rejection=(
+                f"MPS payload {candidate.state_bytes} exceeds {max_state_bytes} bytes "
+                f"(bond bound {candidate.max_bond})"
+            ),
+        )
+    return candidate
 
 
 def _analysis_budget(requests, max_state_qubits, max_state_bytes):
@@ -342,16 +366,17 @@ def plan_all(
     ):
         budget = _analysis_budget(requests, max_state_qubits, max_state_bytes)
     cache_status = "disabled"
+    analysed = "full" if strategy == "mps" else strategy
     if budget is not None and budget["skipped"]:
         analysis = _analyze(requests, "full")
     elif cache is None:
-        analysis = _analyze_optimized(requests, strategy, optimization, options)
+        analysis = _analyze_optimized(requests, analysed, optimization, options)
     else:
-        key = (_cache_key(requests, strategy), optimization, options, identity)
+        key = (_cache_key(requests, analysed), optimization, options, identity)
         analysis = cache._get(key)
         cache_status = "hit" if analysis is not None else "miss"
         if analysis is None:
-            analysis = _analyze_optimized(requests, strategy, optimization, options)
+            analysis = _analyze_optimized(requests, analysed, optimization, options)
             cache._put(key, analysis)
     candidates = list(analysis.candidates)
     for i, candidate in enumerate(candidates):
@@ -367,6 +392,13 @@ def plan_all(
         for c in candidates
         if c.rejection is None and (strategy == "auto" or c.strategy == strategy)
     ]
+    # Exact MPS is built lazily: only as a fallback when no state-vector plan is
+    # feasible, or when requested explicitly, so ordinary plans pay nothing for it.
+    if strategy == "mps" or (strategy == "auto" and not eligible):
+        mps = _mps_candidate(candidates, max_state_bytes)
+        if mps is not None:
+            candidates = [mps] if strategy == "mps" else [*candidates, mps]
+            eligible = [mps] if mps.rejection is None else []
     if not eligible:
         detail = "; ".join(
             f"{c.strategy}: {c.rejection}"
@@ -375,7 +407,10 @@ def plan_all(
         )
         raise NoFeasiblePlan(detail)
     model_status = "heuristic"
-    if cost_model is not None:
+    if eligible and eligible[0].representation == "mps":
+        # Calibrated models cover state-vector widths only.
+        model_status = "heuristic: exact MPS fallback, no state-vector plan is feasible"
+    elif cost_model is not None:
         if all(cost_model.covers(c) for c in eligible):
             model_status = "calibrated"
             candidates = [

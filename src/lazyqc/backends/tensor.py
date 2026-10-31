@@ -110,3 +110,89 @@ class QuimbBackend:
                 raise ArithmeticError(f"Invalid Pauli expectation: {value.real}")
             values.append(value.real)
         return tuple(values)
+
+
+@dataclass(frozen=True)
+class MPSLowered:
+    gates: tuple
+    width: int
+    outputs: tuple[tuple[tuple[int, ...], str], ...]
+    observables: tuple[int, ...]
+
+
+class QuimbMPSBackend:
+    """Exact matrix-product-state execution of one whole-program task.
+
+    ``cutoff=0.0`` keeps every singular value, so results are exact and the bond
+    follows ``lazyqc.tensor_cost.mps_bond_profile``. All outputs of a task read
+    the same MPS, which is applied once.
+    """
+
+    def __init__(self):
+        """Create a backend with zeroed counters."""
+        import quimb.tensor  # noqa: F401  (fail early if the extra is missing)
+
+        self.counters = Counters()
+
+    def capabilities(self):
+        """Return the gates, state convention, and numerical precision supported."""
+        return {
+            "name": "quimb-mps",
+            "gates": ("H", "X", "Y", "Z", "RX", "RY", "RZ", "CX"),
+            "initial_state": "zero",
+            "evaluation": "exact_pauli",
+            "precision": "complex128",
+        }
+
+    def lower(self, task):
+        """Validate a unitary task and record its gates and Pauli outputs."""
+        if any(isinstance(g, Projector) for g in task.operations):
+            raise ValueError("QuimbMPSBackend executes unitary tasks only")
+        mapping = {q: i for i, q in enumerate(task.wires)}
+        gates = []
+        for gate in task.operations:
+            if isinstance(gate.angle, Parameter):
+                raise ValueError("Cannot lower unbound parameters")
+            wires = tuple(mapping[q] for q in gate.qubits)
+            gates.append((gate.name, gate.angle if gate.name in ROTATIONS else None, wires))
+        outputs = tuple(
+            (
+                tuple(mapping[q] for q, _ in pauli.factors),
+                "".join(p for _, p in pauli.factors),
+            )
+            for _, pauli in task.outputs
+        )
+        return MPSLowered(tuple(gates), task.width, outputs, tuple(range(len(outputs))))
+
+    def evolve(self, lowered):
+        """Apply the circuit to an exact MPS and return it."""
+        import quimb.tensor as qtn
+
+        mps = qtn.CircuitMPS(lowered.width, cutoff=0.0)
+        for name, angle, wires in lowered.gates:
+            if angle is None:
+                mps.apply_gate(name, *wires)
+            else:
+                # quimb shares the public convention R_P(theta) = exp(-i theta P / 2).
+                mps.apply_gate(name, angle, *wires)
+        self.counters.allocations += 1
+        self.counters.evolutions += 1
+        return (mps, lowered.outputs)
+
+    def expectations(self, state, observables):
+        """Read Pauli expectations from the MPS and reject invalid values."""
+        import quimb as qu
+
+        mps, outputs = state
+        values = []
+        for index in observables:
+            wires, letters = outputs[index]
+            operator = qu.kron(*(qu.pauli(p) for p in letters))
+            value = complex(mps.local_expectation(operator, wires))
+            if abs(value.imag) > 1e-10:
+                raise ArithmeticError(f"Complex Pauli expectation: {value}")
+            self.counters.expectations += 1
+            if not isfinite(value.real) or abs(value.real) > 1.0 + 1e-10:
+                raise ArithmeticError(f"Invalid Pauli expectation: {value.real}")
+            values.append(value.real)
+        return tuple(values)

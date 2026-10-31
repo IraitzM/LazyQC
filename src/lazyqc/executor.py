@@ -37,13 +37,14 @@ def _check_backend(backend, role):
         raise ValueError(f"{role} must provide lower, evolve, expectations and counters")
 
 
-def execute(plan, *, backend=None, wide_backend=None, wide_from=None) -> Result:
+def execute(plan, *, backend=None, wide_backend=None, wide_from=None, mps_backend=None) -> Result:
     """Execute a serial plan and return values together with timing statistics.
 
     Any backend implementing lower/evolve/expectations can run the plan; Qulacs
     is the default and the only one supporting projector (cut) tasks. With
     `wide_backend`, unitary tasks of at least `wide_from` qubits run there (for
-    example a GPU statevector) and narrower tasks stay on `backend`.
+    example a GPU statevector) and narrower tasks stay on `backend`. Tensor-network
+    tasks (exact MPS fallback) run on `mps_backend`, quimb by default.
     """
     if plan.cost_model is not None:
         plan.cost_model.validate_environment()
@@ -55,7 +56,15 @@ def execute(plan, *, backend=None, wide_backend=None, wide_from=None) -> Result:
         raise ValueError("wide_backend and wide_from must be given together")
     if wide_from is not None and (type(wide_from) is not int or wide_from < 1):
         raise ValueError("wide_from must be a positive integer")
+    if mps_backend is None and any(t.bond for t in plan.selected.tasks):
+        from .backends.tensor import QuimbMPSBackend
+
+        mps_backend = QuimbMPSBackend()
+    if mps_backend is not None:
+        _check_backend(mps_backend, "mps_backend")
     backends = (backend,) if wide_backend is None else (backend, wide_backend)
+    if mps_backend is not None:
+        backends += (mps_backend,)
     start = perf_counter_ns()
     before = [replace(b.counters) for b in backends]
     lowering_ns = evolution_ns = expectation_ns = assembly_ns = 0
@@ -66,10 +75,14 @@ def execute(plan, *, backend=None, wide_backend=None, wide_from=None) -> Result:
     assembly_ns += perf_counter_ns() - mark
     for task in plan.selected.tasks:
         # Recheck before native allocation even if a caller manually assembled a Plan.
-        if task.width > plan.max_state_qubits or task.state_bytes > plan.max_state_bytes:
+        if task.state_bytes > plan.max_state_bytes or (
+            not task.bond and task.width > plan.max_state_qubits
+        ):
             raise ValueError("Task exceeds the plan state limits")
         target = backend
-        if wide_from is not None and task.width >= wide_from:
+        if task.bond:
+            target = mps_backend
+        elif wide_from is not None and task.width >= wide_from:
             if not any(isinstance(g, Projector) for g in task.operations):
                 target = wide_backend
         mark = perf_counter_ns()

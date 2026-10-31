@@ -6,6 +6,7 @@ from functools import cached_property
 from .cost import CalibratedCostModel, _compute_features
 from .instruments import Projector
 from .ir import Gate, Pauli
+from .tensor_cost import mps_payload_bytes
 
 
 @dataclass(frozen=True)
@@ -13,6 +14,13 @@ class Task:
     wires: tuple[int, ...]
     operations: tuple[Gate | Projector, ...]  # logical indices; compacted during lowering
     outputs: tuple[tuple[int, Pauli], ...]
+    # Largest exact-MPS bond for tensor-network tasks; 0 marks a state-vector task.
+    bond: int = 0
+
+    @property
+    def representation(self):
+        """Return ``mps`` for tensor-network tasks and ``statevector`` otherwise."""
+        return "mps" if self.bond else "statevector"
 
     @property
     def width(self):
@@ -22,11 +30,17 @@ class Task:
     @property
     def state_bytes(self):
         """Return the raw complex-state payload size in bytes."""
+        if self.bond:
+            return mps_payload_bytes(self.width, self.bond)
         return 16 * (1 << self.width)
 
     @property
     def score(self):
         """Return the heuristic work score used for candidate comparison."""
+        if self.bond:
+            return (1 + len(self.operations)) * self.bond**3 + (
+                len(self.outputs) * self.width * self.bond**2
+            )
         return (1 << self.width) * (1 + len(self.operations) + len(self.outputs))
 
 
@@ -52,8 +66,18 @@ class Candidate:
 
     @cached_property
     def max_width(self):
-        """Return the widest task, or zero when the candidate is empty."""
-        return max((t.width for t in self.tasks), default=0)
+        """Return the widest state-vector task, or zero when there is none."""
+        return max((t.width for t in self.tasks if not t.bond), default=0)
+
+    @property
+    def representation(self):
+        """Return ``mps`` when any task is a tensor-network task."""
+        return "mps" if any(t.bond for t in self.tasks) else "statevector"
+
+    @property
+    def max_bond(self):
+        """Return the largest exact-MPS bond over tensor-network tasks, or zero."""
+        return max((t.bond for t in self.tasks), default=0)
 
     @cached_property
     def min_width(self):
@@ -117,6 +141,9 @@ class Plan:
             "selection_reason": (
                 "analysis skipped: dense execution predicted below cone analysis cost"
                 if dict(self.analysis_budget).get("skipped")
+                else "no state-vector plan is feasible; exact MPS fallback with bond "
+                f"{self.selected.max_bond} predicted statically, without contracting"
+                if self.selected.representation == "mps" and self.requested_strategy == "auto"
                 else "lowest predicted execution time, then fewest tasks"
                 if self.cost_model_status == "calibrated"
                 else "lowest work score, then fewest tasks"
@@ -124,7 +151,9 @@ class Plan:
             if self.requested_strategy == "auto" or self.requested_optimization != "none"
             else "explicitly requested strategy",
             "analysis_budget": dict(self.analysis_budget) or None,
-            "memory_scope": "raw state payload only; not process RSS",
+            "memory_scope": "raw state or MPS tensor payload only; not process RSS",
+            "representation": self.selected.representation,
+            "max_mps_bond": self.selected.max_bond or None,
             "max_state_qubits": self.selected.max_width,
             "estimated_state_bytes": self.selected.state_bytes,
             "limits": {
@@ -140,6 +169,8 @@ class Plan:
                     "score": c.score,
                     "predicted_execution_ns": c.predicted_execution_ns,
                     "evolutions": len(c.tasks),
+                    "representation": c.representation,
+                    "max_mps_bond": c.max_bond or None,
                     "max_state_qubits": c.max_width,
                     "estimated_state_bytes": c.state_bytes,
                     "rejection": c.rejection,
@@ -158,11 +189,18 @@ class Plan:
             ],
         }
 
-    def collect(self, *, backend=None, wide_backend=None, wide_from=None):
+    def collect(self, *, backend=None, wide_backend=None, wide_from=None, mps_backend=None):
         """Execute the selected plan and return its values and statistics.
 
         Tasks of at least `wide_from` qubits run on `wide_backend` when given.
+        Tensor-network tasks run on `mps_backend` (quimb exact MPS by default).
         """
         from .executor import execute
 
-        return execute(self, backend=backend, wide_backend=wide_backend, wide_from=wide_from)
+        return execute(
+            self,
+            backend=backend,
+            wide_backend=wide_backend,
+            wide_from=wide_from,
+            mps_backend=mps_backend,
+        )
