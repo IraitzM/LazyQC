@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "subsystems": [{"name": "level", "basis": [10, 20, 30]}],
+  "operations": [
+    {"kind": "interfere", "targets": ["level"], "pairs": [[0, 1]]},
+    {"kind": "phase", "targets": ["level"], "angles": [0, 0.7, 0]},
+    {"kind": "interfere", "targets": ["level"], "pairs": [[1, 2]]}
+  ]
+}

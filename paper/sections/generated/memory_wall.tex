@@ -1,0 +1,16 @@
+\begin{tabular}{lllrrrrrr}
+\toprule
+Method & Family & Outputs & Width / $\chi$ & 32 & 48 & 64 & 100 & 128\\
+\midrule
+LazyQC & Hardware-eff. & $Z$, all & 6--10 & 4.56 & 8.28 & 12.41 & 24.08 & 36.84\\
+LazyQC & Hardware-eff. & $X,Y,Z$, one & 6 & 0.24 & 0.26 & 0.30 & 0.42 & 0.48\\
+LazyQC & QCNN-like & $Z$, all & 2--8 & 1.65 & 2.53 & 4.00 & 8.11 & 12.64\\
+LazyQC & QCNN-like & $X,Y,Z$, one & 8 & 0.20 & 0.19 & 0.21 & 0.27 & 0.27\\
+\midrule
+Exact MPS & Hardware-eff. & $Z$, all & $\chi{\le}32$ & 67.9 & 106.9 & 142.7 & 228.5 & 273.9\\
+Exact MPS & QCNN-like & $Z$, all & $\chi{\le}8$ & 53.0 & 89.1 & 106.1 & 164.4 & 217.4\\
+Exact MPS & Re-uploading & $Z$, all & $\chi{\le}16$ & 46.0 & 75.9 & 92.0 & 145.0 & 200.7\\
+\midrule
+\multicolumn{4}{l}{Dense state (bytes)} & $2^{36}$ & $2^{52}$ & $2^{68}$ & $2^{104}$ & $2^{132}$\\
+\bottomrule
+\end{tabular}

@@ -1,0 +1,11 @@
+\subsection{Detailed Observable-Sensitivity Study}
+This benchmark evaluates the implemented acceptance rule of Theorem~\ref{thm:observable-error} and the separation mechanism of Corollary~\ref{cor:resource-reduction}. It retains all profiling and setup charges in the lifetime comparison. The derived radius in Corollary~\ref{cor:radius} is a theoretical planning rule; the measured candidate search instead tests explicit zero-angle subsets.
+
+\subsubsection{Validation design}
+An independent NumPy oracle checks 96 seeded, noncommuting circuits of two to five qubits. Six simultaneous rotation perturbations at scales $10^{-6}$, $10^{-3}$, $0.1$, and $1$ radian give 384 perturbation vectors and 1,152 observable comparisons. Derivatives are independently checked with central differences at step $10^{-5}$. Separate analytic controls cover shared parameters, stationary points, and cancellation as the finite-difference step approaches machine precision.
+
+The performance study uses nine fixtures: two local blocks at total widths 8 and 12; three seeds of two-block width 16 and three-block width 15; and a connected 16-qubit control. Each has 20 random local preparation layers, weak $\mathrm{CX}\,R_Z(\delta)\,\mathrm{CX}$ bridges with $\delta=0.003$ or $0.006$, and four further noncommuting local layers. The control retains an extra CX bridge after approximation. Requests are local $X$ and $Z$ outputs, two per block. The candidate ablation compares exact execution, uniform rounding of the eligible bridge angles to a $0.02$-radian grid, gradient-only acceptance, and bounded selection at budgets $10^{-6}$, $10^{-4}$, and $10^{-2}$.
+
+Three sequential interpreter sessions use a frozen source snapshot, 1/2/4 local workers, and one native thread per process. Each policy has one first collection and seven interleaved warm collections; all original and modified outputs are checked independently. Lifetime comparisons charge profiling, search, startup and shutdown over eight collections at budget $0.01$. Common program construction and validation-oracle work are excluded. The same measured pool setup is charged to both counterfactual workflows. Separate resource probes report payload and sampled parent-plus-pool RSS. Repeated sessions do not add independent circuit seeds.
+
+\input{sections/13_sensitivity_results}

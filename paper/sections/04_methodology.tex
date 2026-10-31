@@ -1,0 +1,67 @@
+\section{Experimental Methodology}
+\label{sec:method}
+\subsection{Workloads}
+The main comparison uses three generated QML circuit families, frozen together with their seeds in a manifest before any timing took place:
+\begin{itemize}
+\item \textbf{Hardware-efficient local:} data-encoding $R_X$ and trainable $R_Y$ rotations on every qubit, followed by two alternating sublayers of nearest-neighbour CX gates.
+\item \textbf{QCNN-like local:} convolution and pooling blocks of $R_Y$, $R_X$ and two CX gates, applied with strides 1, 2, 4 and 4. It is a controlled QML-inspired circuit, not a canonical QCNN.
+\item \textbf{Data re-uploading:} data $R_X$ and trainable $R_Y$ rotations on every qubit followed by a CX chain along the whole register, alternating direction. Its cones cover every wire after one layer, which makes it our saturation control.
+\end{itemize}
+All circuits have depth four. Outputs follow two patterns: $Z$ on every wire ($K=n$), which is the readout of a multi-output model, and $X$, $Y$ and $Z$ on wire 0 ($K=3$), the most favourable case for cones. Every configuration is evaluated on the two held-out circuit seeds of our earlier QML matrix (seed offsets 202 and 303), so none of the instances was used to design or tune the planner. For gradients, every $R_Y$ occurrence is an independent trainable parameter, which gives $P=4n$ parameters in the hardware-efficient and re-uploading families.
+
+\subsection{Generalization studies}
+\label{sec:generalization}
+The main comparison is deliberately narrow, so three further studies test how far its conclusions travel. They run on the laptop, compare the planner on single-thread Qulacs with direct single-thread Qulacs, and use the same validation.
+\begin{itemize}
+\item \textbf{Held-out families.} Two families were added after the planner, its analysis budget and $w^\star$ had been frozen, so none of their timings informed any planner decision. The first is a MERA-like tree whose isometries join block heads at strides 1, 2, 4, and so on, with nearest-neighbour disentanglers on the block boundaries; its cones are narrow at depth two and saturated by depth eight. The second is the wiring of PennyLane's \texttt{StronglyEntanglingLayers}, general rotations followed by a CX ring of growing range, which saturates at every depth and is a public ansatz. We evaluate 8 to 20 qubits, depths 2, 4, 8 and 16, five seeds and three output patterns ($Z$ on every wire, $X$, $Y$ and $Z$ on one wire, and four scattered $Z$ outputs), 480 instances in all, each timed four times in each of two fresh interpreter sessions. The analysis plan, the strata and three decision criteria were frozen in a manifest before timing. Strata use only the planned grouped candidate: cones are narrow when its widest task covers less than half the register and saturated from 90\% on, and outputs share cones when grouping at least halves the number of separate tasks.
+\item \textbf{Trained classifiers.} We trained 48 binary Iris classifiers with 4 and 8 qubits, a CX-ring and a nearest-neighbour brickwork ansatz, depths two and four, three data splits and two initializations, for 30 parameter-shift steps with every method. We also replay, without retraining, 15 classifiers trained in a separate study of encoding geometry with its own code base and simulator, on MNIST1D, EEG and PneumoniaMNIST data. These have 8 qubits, four data re-uploads of one \texttt{StronglyEntanglingLayers} layer, and 16 outputs ($Z_i$ and $Z_iZ_{i+1}$) that feed a trained linear head.
+\item \textbf{Exhaustive reference on held-out families.} The 52-partition reference of RQ3, run on both new families at 6 and 8 qubits and depths two and four.
+\end{itemize}
+
+\subsection{Methods compared}
+Table~\ref{tab:methods} summarizes the compared methods. We use the same engine as the planner (single-thread Qulacs) as the most direct reference, and the fastest engine we found for each hardware class as the strong reference. In a preliminary check on a 24-qubit re-uploading circuit, Qiskit Aer with gate fusion took 1.8\,s with 20 threads, against 8.7\,s for Qulacs with 20 threads and 12.4\,s for Qulacs with one, so Aer is our multi-threaded CPU reference. On the GPU, Aer was the fastest direct method from 24 qubits on (0.24 against 0.60\,s for Lightning GPU on the 24-qubit hardware-efficient circuits), while Lightning GPU was faster at 16 qubits and the two were close at 20, so we report both. Finally, to separate the benefit of planning from the choice of device, we ran the planner's tasks on each backend $B$ and compared them with direct execution on the same backend.
+
+Two further baselines isolate the contribution from existing cone reduction and from the representation. First, the \emph{Qiskit LightCone + Aer} baseline runs Qiskit's actual commutation-aware pass independently for every output and shifted program, compacts the retained wires, and executes the resulting circuits in one Aer GPU job. We evaluate both one circuit per request and exact deduplication of identical reduced-circuit signatures across the complete batch. Pass execution, compaction, observable setup and deduplication are charged. This is deliberately not identified with our support-based \texttt{separate} candidate. Second, the beyond-device-memory study uses two stronger tensor-network comparators in addition to the legacy per-output quimb method: a reused-circuit quimb light-cone contraction and a global \texttt{CircuitMPS} with $\texttt{cutoff}=0$, prepared once per batch and shared by all outputs. The latter performs no bond truncation; its preparation and every requested expectation are included in its time. Claims about tensor-network representations rely on these shared baselines, not on the per-output strategy alone.
+
+\begin{table}[!t]
+\caption{Methods Compared. The Qiskit LightCone Baseline Uses the Actual Commutation-Aware Pass; the Global MPS Uses \texttt{cutoff}${}=0$ and Is Shared by Every Output in a Batch.}
+\label{tab:methods}
+\centering
+\setlength{\tabcolsep}{2pt}
+\footnotesize
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{llcl}
+\toprule
+Method & Engine & Threads & Role\\
+\midrule
+LazyQC & Qulacs & 1 & Planner, CPU collection\\
+LazyQC+GPU & Qulacs, Aer GPU & 1 & Planner, wide tasks on GPU\\
+Qulacs 1t & Qulacs & 1 & Direct, same engine\\
+Aer CPU & Aer, fusion & 20 & Direct, strongest CPU\\
+Aer GPU & Aer, fusion & 20 & Direct, strongest GPU\\
+Lightning GPU & cuStateVec & 20 & Direct, second GPU\\
+quimb & Tensor network & 20 & Direct, per-output light cones\\
+Qiskit LC + Aer & LightCone, Aer GPU & 1 & Per-output cones, exact dedup\\
+Reused quimb TN & Tensor network & 1 & Reused-circuit light cones\\
+Exact global MPS & quimb \texttt{CircuitMPS} & 1 & Shared MPS, \texttt{cutoff}${}=0$\\
+LazyQC on $B$ & As backend $B$ & 20 & All tasks on $B$\\
+Aer GPU shift & Aer, fusion & 20 & Shift-rule gradients\\
+Lightning adjoint & cuStateVec, CPU & 20 & Adjoint gradients\\
+\bottomrule
+\end{tabular}%
+}
+\end{table}
+
+\subsection{Host and software}
+All measurements run on one laptop: an Intel Core i7-13700H (6 performance and 8 efficiency cores, 20 hardware threads) with 31\,GB of RAM and an NVIDIA GeForce RTX 4060 Laptop GPU with 8\,GB (driver 595.84), under Linux 6.8 and Python 3.12. We use Qulacs 0.6.14, Qiskit 2.6.1 with qiskit-aer-gpu 0.18.0 on the CUDA 12 runtime, PennyLane 0.45.1 with Lightning 0.45.0 and custatevec-cu12 1.6.0, and quimb 1.15.0. The GPU baselines run in an isolated environment declared inline in the benchmark runners, so they never interfere with the project's locked dependencies. A laptop GPU is a modest device, so we repeated every GPU-dependent study on a cloud instance with an NVIDIA H100 PCIe of 80\,GB and 26 vCPUs of an Intel Xeon Platinum 8480+ (driver 570, CUDA 12.8), launched with SkyPilot from the same code and the same locked dependencies, with both thread passes on that host. Its CPU thread runs the planner about half as fast as the laptop's performance cores. Section~\ref{sec:discussion} reports what changes.
+
+\subsection{Timing scope and fairness}
+Every timing starts after the workload has been constructed. For \textsc{LazyQC} it includes planning and collection. Direct dense baselines receive prebuilt circuits, observables or tapes, are warmed up once per case, and are timed from state allocation to the last expectation value. They also get all 20 host threads, while \textsc{LazyQC} runs on one. Each of these choices favours the baselines. We run five repetitions per method and case at 12 to 20 qubits, three at 24 and 26, and two at 28, after a warm-up call. Methods run in a randomized order within each case. We report medians per case and geometric means over the two seeds; with two seeds per configuration, all ratios are descriptive. The single-thread and multi-threaded passes ran one after the other, so we repeated every 12- and 16-qubit case one hour later: the ratios between the fastest direct method and the planner agreed within a median of 7\% and at most 24\%, and no comparison changed side. The same check on the cloud host gave a median of 2.5\%, with the largest deviations at 16 qubits, where every method takes a few milliseconds.
+
+The LightCone ablations use the same warm-up and randomized method order. They use three repetitions, except two for the 20-qubit Jacobian, and report geometric means over two circuit seeds. The original Qiskit DAG is prebuilt; every repetition includes all LightCone passes, wire compaction, expectation setup, optional deduplication and Aer execution. The exact global MPS and reused-circuit tensor-network timings have three repetitions per case and include preparation and all outputs. The beyond-device-memory planner runs have five. The 48-qubit depth-six and depth-eight cases use the same two held-out seeds and include CPU-only and GPU-placement planner variants. All these manifests were frozen before their respective timing runs.
+
+\subsection{Validation}
+Every timed result is checked. Within each case, all methods are compared with one reference, the planner's cone values or, when the cone saturates beyond 20 qubits, Aer GPU, and up to 12 qubits the reference is also checked against an independent matrix-free NumPy simulator. Beyond 28 qubits, where no state vector fits, planner values are compared with quimb local expectations computed by light-cone simplified tensor contraction. The global MPS is checked against the same values; the maximum discrepancy is $4.7\times10^{-12}$. Every LightCone baseline output, including every raw expectation in the parameter-shift batches, is checked against the planner's Qulacs result. Jacobians are compared with Lightning's adjoint Jacobians, and training-loss trajectories are compared across methods. The tolerance is $10^{-9}$ throughout.
+
+\subsection{Placement threshold}
+The threshold $w^\star$ was measured before the study by running full-state tasks of the re-uploading and hardware-efficient families through the \textsc{LazyQC} executor on both devices. Aer GPU pays a fixed cost of about 3.5 to 5\,ms per circuit, so it was 8 to 23 times slower than single-thread Qulacs at 8 to 10 qubits and twice as slow at 13. The ratio crossed one at 14 qubits (0.83 to 0.97) and reached 0.24 to 0.27 at 16. We fixed $w^\star=14$ in the manifest.

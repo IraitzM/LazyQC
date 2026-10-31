@@ -1,0 +1,35 @@
+\clearpage
+\appendices
+\section{Approximation Under Per-Output Error Budgets}
+\label{app:sensitivity}
+Exact planning never changes an answer. This appendix describes the one opt-in mechanism that does: replacing small rotation angles by zero when a conditional bound guarantees that every requested output stays within its error budget. Its interest for this paper is structural. An accepted substitution can remove a weak bridge between two blocks of a circuit and therefore shrink cones that exact planning has to keep whole.
+
+\input{sections/15_sensitivity_theory}
+
+\input{sections/11_sensitivity}
+
+\input{sections/12_sensitivity_appendix}
+
+\section{Earlier Planning Studies}
+\label{app:earlier}
+The studies in this appendix predate the QML evaluation. They use small QAOA-derived fixtures and compare planning policies with each other rather than with direct execution, which is why they are not part of the main results. They remain useful because they isolate the cost of search, the value of joint cut selection and the role of expected reuse.
+
+\input{sections/16_earlier_studies}
+
+\section{Local Multiprocessing}
+\label{app:parallel}
+\input{sections/09_local_parallel}
+
+\input{sections/10_local_parallel_appendix}
+
+\section{Artifacts and Provenance}
+\label{app:provenance}
+All raw observations, manifests and runners are part of the accompanying repository. The planner-versus-direct study is defined by \path{benchmarks/direct_baseline_manifest.json}. Its runners are \path{benchmarks/run_direct_baselines.py}, \path{benchmarks/run_gradient_baselines.py} and \path{benchmarks/run_memory_wall.py}, which share \path{benchmarks/direct_support.py}, and \path{benchmarks/summarize_direct.py} recomputes every reported median, ratio and figure from the raw rows in \path{results/direct/}. The GPU runners declare their dependencies inline, pinned by adjacent script lockfiles, and can be reproduced with \texttt{uv run --locked --script}. The same-backend comparison is \path{results/direct/backend_matrix.json}. The cloud confirmation ran \path{cloud/gpu-baselines.yaml} through \path{scripts/sky_gpu.sh} on a Lambda \texttt{gpu\_1x\_h100\_pcie} instance for 2\,h\,23\,min, and its results, including the host's \texttt{nvidia-smi} and \texttt{lscpu} records, are in \path{results/direct/remote/nvidia-h100-pcie/}. Each result file records the manifest hash, a hash of the package and runner sources, the command line, the thread settings, the CPU and GPU models and the package versions.
+
+The QML matrix, the exhaustive grouping reference, the replay and parallel probes and the external backend pilots are in \path{results/qml_workloads/}, produced by the corresponding \path{benchmarks/run_qml_*.py}, \path{run_grouping_oracle.py}, \path{run_ionq_*.py} and \path{run_iqm_qml_*.py} runners and frozen in \path{benchmarks/qml_workload_manifest.json}. The interleaved comparison of the pre-study and current planners used in RQ3 is \path{results/qml_workloads/planner_ab/}, recomputed by \path{benchmarks/compare_planner_versions.py}; an earlier rerun in \path{results/qml_workloads/v2/} ran right after sustained GPU load, shows a uniform slowdown of its collections, and is not used. The analysis-budget coefficients are fitted by \path{benchmarks/calibrate_analysis_budget.py}, with its output in \path{results/analysis_budget/calibration.json}, and the Hamiltonian-averaging study of the budget is \path{results/analysis_budget/hamiltonian.json}, produced by \path{benchmarks/run_analysis_budget.py}. The earlier planning studies of Appendix~\ref{app:earlier} are in \path{results/p4_p5/}, \path{results/priorities/} and \path{results/workload_manifest/v2/}, with their analysis in \path{paper/analysis/}.
+
+The generalization studies of Section~\ref{sec:generalization} are frozen in \path{benchmarks/qml_heldout_family_manifest.json}, \path{benchmarks/grouping_oracle_heldout_manifest.json}, \path{benchmarks/trained_iris_qml_v3_manifest.json} and \path{benchmarks/fourier_trained_qml_manifest.json}. The held-out screen runs as two sessions of \path{benchmarks/run_qml_depth_screen.py} and is summarized by \path{benchmarks/summarize_heldout_families.py}, which applies the analysis plan recorded in its manifest and checks the manifest hash of every session. The trained models come from \path{benchmarks/run_trained_iris_qml.py} and, for the replayed classifiers, \path{benchmarks/export_fourier_trained_models.py} followed by \path{benchmarks/run_fourier_trained_qml.py}. The exporter rebuilds every test split with the original study's code and refuses to continue unless its hash matches the one that study recorded. The tied-parameter control is \path{benchmarks/run_tied_qml_gradients.py}. The matched-basis IQM probes are \path{results/qml_workloads/iqm_garnet_basis_probe.json} and \path{results/qml_workloads/iqm_garnet_basis_probe_line.json}, produced by \path{benchmarks/run_iqm_qml_basis_probe.py} and summarized by \path{benchmarks/summarize_iqm_basis_probe.py}. \path{benchmarks/paper_generalization_tables.py} regenerates the corresponding tables from these results.
+
+The revised beyond-device-memory study is defined by the \texttt{memory\_wall} section of \path{benchmarks/direct_baseline_manifest.json}. \path{benchmarks/run_memory_wall.py} now records exact global-MPS, reused-circuit tensor-network, LazyQC CPU and LazyQC GPU-placement timings, cone-width ranges, bond dimensions, validation errors, source hashes and environment fingerprints in \path{results/direct/memory_wall.json}. \path{benchmarks/summarize_direct.py} regenerates Tables~\ref{tab:memory-wall} and~\ref{tab:intermediate-cones} and their Markdown summaries from those rows. The direct Qiskit LightCone studies are frozen in \path{benchmarks/lightcone_ablation_manifest.json} and \path{benchmarks/lightcone_jacobian_manifest.json}, with runners \path{benchmarks/run_lightcone_ablation.py} and \path{benchmarks/run_lightcone_jacobian_ablation.py}. Their raw observations are \path{results/direct/lightcone_ablation.json} and \path{results/direct/lightcone_jacobian_ablation.json}; \path{benchmarks/summarize_lightcone_ablation.py} regenerates Table~\ref{tab:lightcone-ablation}. The policy comparison in Table~\ref{tab:policy-ablations} is a post-hoc analysis of the two frozen held-out session files, with no new timings: \path{benchmarks/summarize_policy_ablations.py} regenerates \path{results/qml_workloads/policy_ablations.json}, its Markdown report and the LaTeX table.
+
+No immutable public release identifier is associated with these measurements yet.

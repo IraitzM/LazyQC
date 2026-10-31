@@ -1,0 +1,32 @@
+{
+  "protocol": "tied_qml_gradient_screen_v1",
+  "description": "Exploratory comparison of independent RY occurrence derivatives and their layer-tied sums; no trained models or QPU noise.",
+  "base_seed": 20261024,
+  "seed_offsets": [1001, 1102],
+  "families": [
+    "hardware_efficient_local",
+    "qcnn_like_local",
+    "data_reuploading"
+  ],
+  "qubits": [8, 12],
+  "depths": [2, 4],
+  "strategies": ["full", "separate", "grouped", "auto"],
+  "collections_per_plan": 2,
+  "max_state_qubits": 20,
+  "max_state_bytes": 268435456,
+  "randomized_order_seed": 241025,
+  "finite_difference_epsilon": 0.00001,
+  "finite_difference_tolerance": 0.000001,
+  "oracle_tolerance": 1e-10,
+  "parameterization": "RY angles contain fixed feature offsets plus one shared trainable additive offset per circuit layer. Independent derivatives are computed per RY occurrence; tied derivatives are the sum of the occurrence derivatives in the layer.",
+  "validation": "All parameter-shift expectations compared with independent matrix-free NumPy statevector oracle; tied layer derivatives checked by central finite differences.",
+  "primary_recorded_costs": [
+    "planning",
+    "collection",
+    "two-collection lifetime",
+    "structural-zero fractions under independent and tied parameterizations",
+    "unique state evolutions",
+    "task count and widths",
+    "oracle and finite-difference error"
+  ]
+}

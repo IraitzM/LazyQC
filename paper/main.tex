@@ -1,0 +1,53 @@
+\documentclass[journal]{IEEEtran}
+
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{algorithmic}
+\usepackage{graphicx}
+\usepackage{textcomp}
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{microtype}
+\usepackage{url}
+\usepackage[hidelinks]{hyperref}
+\usepackage{cite}
+\usepackage{tikz}
+\usetikzlibrary{shapes.geometric, arrows.meta, positioning, calc, fit, backgrounds}
+
+\newtheorem{theorem}{Theorem}
+\newtheorem{corollary}{Corollary}
+
+\begin{document}
+
+\title{LazyQC: Avoiding Simulation Work in Batched Quantum Expectation Workloads}
+
+\author{Iraitz~Montalb\'an%
+\thanks{I.~Montalb\'an, University of Oviedo, Spain (e-mail: uo311277@uniovi.es).}%
+}
+
+\markboth{LazyQC: Research Manuscript}%
+{Montalb\'an: Avoiding Simulation Work in Batched Quantum Expectation Workloads}
+
+\maketitle
+
+\begin{abstract}
+\input{sections/00_abstract}
+\end{abstract}
+
+\begin{IEEEkeywords}
+Quantum circuit simulation, quantum machine learning, causal cones, query planning, GPU simulation, parameter-shift gradients, lazy evaluation.
+\end{IEEEkeywords}
+
+\input{sections/01_introduction}
+\input{sections/02_background_related}
+\input{sections/03_system_architecture}
+\input{sections/04_methodology}
+\input{sections/05_evaluation}
+\input{sections/06_discussion_limits}
+\input{sections/07_conclusion}
+
+\input{sections/08_appendix}
+
+\bibliographystyle{IEEEtran}
+\bibliography{references}
+
+\end{document}

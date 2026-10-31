@@ -1,0 +1,72 @@
+\subsection{RQ3: How good are the decisions, and what do they cost?}
+\label{sec:rq3}
+In the regime of RQ1 the decision is easy: the dense plan costs seconds and the cone plan milliseconds. It becomes delicate at small widths, where every candidate costs well under a millisecond and the analysis itself is a visible part of the total. We study that regime with the frozen QML matrix of our earlier work (240 cases at 8 and 12 qubits, five request patterns and eight repetitions per strategy) and its exhaustive reference, which times all 52 partitions of five same-state outputs, plus the dense plan, on 24 small cases. The held-out families of Section~\ref{sec:generalization} then test the same decisions on circuits the planner never saw. To separate the effect of the new planner from the drift of a laptop under sustained load, we ran the pre-study planner and the current one back to back in two rounds of alternating order. Collection times, whose code path did not change, agreed within 0.5\% between versions. Table~\ref{tab:rq3} summarizes the held-out cases.
+
+\begin{table*}[!t]
+\caption{Direct Comparison with Qiskit's Commutation-Aware \texttt{LightCone} Pass Followed by Aer GPU. S/D Is the Number of Circuits without/with Exact Reduced-Circuit Deduplication. All Analysis and Total Times Are Milliseconds and Include Lowering and Expectation Setup. LazyQC Uses \texttt{auto} Planning and Single-Thread Qulacs. Forward Rows Are Depth-Four Hardware-Efficient Circuits with $Z$ on Every Wire; Jacobian Rows Include the Base and All Shifted Programs. Values Are Geometric Means over Two Seeds.}
+\label{tab:lightcone-ablation}
+\centering
+\setlength{\tabcolsep}{4pt}
+\footnotesize
+\resizebox{\textwidth}{!}{\input{sections/generated/lightcone_ablation}}
+\end{table*}
+
+\textbf{What changes relative to an existing LightCone pass.} Table~\ref{tab:lightcone-ablation} compares against the actual Qiskit implementation, not against our separate candidate as a proxy. Qiskit's commutation checks can produce smaller cones than our support traversal, while LazyQC's contribution is to cache structural analysis and plan sharing across the whole batch. In the forward study, exact deduplication does not reduce the Qiskit circuit count on these instances, whereas LazyQC groups each pair of preparations. At 128 qubits, Qiskit analysis takes 849.5\,ms against 25.61\,ms for LazyQC, and total times are 974.9 and 39.21\,ms. The Jacobian study exposes cross-program reuse: at 20 qubits, deduplication reduces 3,220 Qiskit circuits to 896, while LazyQC forms 518 tasks. Qiskit analysis takes 7.308\,s against 28.61\,ms, and totals are 8.222\,s against 152.19\,ms. At 12 qubits the corresponding totals are 2.763\,s and 63.64\,ms. These totals include different executors (Aer GPU for Qiskit and one-thread Qulacs for LazyQC) so the analysis columns are the cleanest isolation of the planning mechanism. The result supports a batch-planning contribution, not a claim of inventing cone reduction or of a better commutation analysis.
+
+\begin{table}[!t]
+\caption{Decision-Policy Ablation on 480 Held-Out Instances. Median and p90 Are Cross-Validated Total-Time Regret at One Collection. Narrow and Saturated Give Median Policy Time over Direct Qulacs. FP Selects a Cone Plan When Full Is Best (291 Cases); FN Selects Full When a Cone Plan Is Best (189 Cases). Simple Structural Selectors Pay the Same Analysis Cost as \texttt{auto}.}
+\label{tab:policy-ablations}
+\centering
+\setlength{\tabcolsep}{2.5pt}
+\footnotesize
+\resizebox{\columnwidth}{!}{\input{sections/generated/policy_ablations}}
+\end{table}
+
+\textbf{Why a cost model instead of a width threshold.} Table~\ref{tab:policy-ablations} compares the frozen planner with simple alternatives using only the previously collected session timings. Among policies that exploit cones, \texttt{auto} has the lowest median cross-validated regret (1.055 against 1.140--1.165 for the three width-only rules), and its p90 is 1.534. Always keeping the full plan has median regret one because full is best in 291 of 480 instances, but its p90 is 5.226 and it misses every case where reduction helps: its median narrow-stratum time is 1.056 times direct, against 0.004 for the reducing policies. Always reducing is much worse on saturated cases (2.822--3.144 times direct). The error counts expose the trade-off rather than hiding it: the $w<n$ rule has fewer false-positive reductions than \texttt{auto} (10 against 26), but 124 false negatives against five. Thus \texttt{auto} is not uniformly optimal, but its total-cost score makes materially better batch decisions than any tested single width rule.
+
+
+\begin{table}[!t]
+\caption{Cost of Deciding at Small Widths: Pre-Study and Current Planner, Held-Out Cases, Ranges over the Two Interleaved Rounds.}
+\label{tab:rq3}
+\centering
+\setlength{\tabcolsep}{3pt}
+\footnotesize
+\begin{tabular}{lrr}
+\toprule
+Quantity & Pre-study & Current\\
+\midrule
+Auto planning time (relative) & 1 & 0.57\\
+Forced dense planning time (relative) & 1 & 0.25\\
+Median auto total, 8 / 12 qubits (ms) & 0.72 / 1.22 & 0.55 / 0.95\\
+Median overhead over best forced (ms) & 0.18 / 0.14 & 0.19 / 0.07\\
+Auto / best forced, per request pattern & 1.19--1.35 & 1.18--1.50\\
+\midrule
+\multicolumn{3}{l}{Exhaustive reference: auto relative to the fastest partition}\\
+\quad execution only & 1.17--1.21 & 1.17--1.18\\
+\quad total, one collection & 3.09--3.25 & 2.80--2.85\\
+\quad total, five collections & 1.56--1.62 & 1.49--1.52\\
+\quad total, 32 collections & 1.23--1.27 & 1.22--1.23\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{The decisions did not change; deciding got cheaper.} The structure-keyed analysis is equivalent to the original one, and the analysis budget did not trigger on any of these cases, so both planners selected the same plans. The automatic plan's execution stays within 1.17 to 1.21 times the fastest of the 52 measured partitions, a figure that already includes the optimistic bias of taking a minimum over 52 noisy candidates. What changed is the cost of deciding: automatic planning takes 0.57 times its previous time, and the median total time fell from 0.72 to 0.55\,ms at 8 qubits and from 1.22 to 0.95\,ms at 12. Charged against a single collection, the automatic plan now costs 2.8 times the fastest partition's execution instead of 3.1 to 3.2 times, and after five collections 1.5 times instead of 1.6.
+
+\textbf{Small widths remain the planner's weak spot.} Against the best forced policy, automatic planning still costs 1.18 to 1.50 times as much at these widths, slightly more than before for some request patterns. The reason is instructive: the forced dense plan became four times cheaper to plan as well, because it also uses structure keys, so the reference moved faster than the automatic plan did. In absolute terms the median overhead is 0.07 to 0.19\,ms, with a 90th percentile of about half a millisecond. That is negligible next to any of the RQ1 savings, but not next to a simulation that itself takes a millisecond.
+
+\begin{table}[!t]
+\caption{Exhaustive Reference: Automatic Plan Relative to the Fastest of the 52 Partitions and the Dense Plan, Geometric Means. Execution Regret Is the Product of Ranking Regret, against the Best Candidate the Planner Generated, and Coverage Regret, of that Candidate against the Best Partition.}
+\label{tab:regret}
+\centering
+\setlength{\tabcolsep}{3pt}
+\footnotesize
+\resizebox{\columnwidth}{!}{\input{sections/generated/regret_decomposition}}
+\end{table}
+
+\textbf{Decisions on unseen families.} On the held-out families, we estimate selection regret by cross-validation: the best forced plan is chosen on one interpreter session and evaluated on the other, so a noisy minimum cannot flatter the reference. Its median is 1.055 at one collection (bootstrap 95\% interval 1.035 to 1.073, against 1.061 in-sample), and 1.01 after eight collections. \texttt{auto} chose the plan with the lowest pooled time in 418 of the 480 instances. The three criteria frozen before timing all hold: at least a 10\% gain over direct execution where cones are narrow and shared (median 0.016, interval 0.002 to 0.24), at most 10\% selection regret overall (1.055), and at most a 10\% loss where cones saturate (1.095, interval 1.066 to 1.122). Two caveats limit what this shows. The last criterion passes on its median while its interval crosses the threshold, and the first rests on 15 instances of one family and one output pattern. The regret tail sits where Table~\ref{tab:heldout} puts the overhead, with a median cross-validated regret of 1.41 at 8 qubits and 1.00 at 20.
+
+\textbf{Ranking, not coverage.} Section~\ref{sec:system} splits the excess cost of a decision into analysis overhead, ranking regret and coverage regret, and the exhaustive reference measures the last two (Table~\ref{tab:regret}). Coverage regret, the price of partitions the bounded search never builds, is 1.02 to 1.06 in every split, including both unseen families. Nearly all of the execution regret is ranking. On small tree circuits the planner prefers a cone plan when the dense plan is up to 1.9 times faster, which gives a ranking regret of 1.29. The work score of Eq.~\eqref{eq:work-score} explains why: every term grows with $2^{m_g}$, so the score has no constant for the fixed cost of lowering and launching a task, which dominates below a millisecond. On these cases, analysis is 52 to 63\% of the automatic plan's time at one collection. A per-task constant in the score, or a size guard that skips analysis for tiny batches, would target this tail. Either would be a new rule that must be evaluated on fresh instances, so we leave it to future work.
+
+\textbf{When the budget matters.} The budget is designed for batches whose analysis would exceed the dense execution, which never happens in the QML matrix. Hamiltonian averaging on small circuits is such a case: a 6- to 12-qubit hardware-efficient ansatz with linear CX chains and 16 to 128 overlapping local Pauli terms, the shape of a small-molecule energy evaluation. Over 540 validated timings, the budget skipped analysis in 8 of the 12 configurations, all up to 10 qubits, and the automatic plan then matched the forced dense plan (1.04 times in geometric mean), while always analysing cost 1.69 times as much. In the other four, the analysis was predicted to be affordable, ran, and found only saturated cones, so automatic planning cost 1.3 to 1.8 times the dense plan with or without the budget. A cheap early test for cone saturation would recover these cases, and is a natural next refinement.
+
+\textbf{Reusing the analysis across a trajectory.} For the joint planner, whose search is much more expensive than the cone analysis, structural replay reuses group and cut decisions across parameter points when the rewritten topology and the equality pattern of bound preparations are unchanged. On the QML replay probe (24 held-out trajectories of six parameter points at 8 and 12 qubits, with template creation charged once), replay hit the template every time and reduced median planning time from 7.99 to 1.70\,ms for shared-bound trajectories and from 16.20 to 3.85\,ms for shift-pair trajectories. The whole trajectory became 2.37 times cheaper in geometric mean, with every replayed output within $2.9\times10^{-15}$ of an independent NumPy reference.

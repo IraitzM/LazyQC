@@ -1,0 +1,306 @@
+{
+  "timestamp_utc": "2026-10-26T10:59:01.927261+00:00",
+  "status": "pass",
+  "scope": "All LaTeX files in paper/sections/generated; analysis-only regeneration, no measurements.",
+  "commands": [
+    "benchmarks/paper_generalization_tables.py",
+    "benchmarks/summarize_direct.py",
+    "benchmarks/summarize_lightcone_ablation.py",
+    "benchmarks/summarize_policy_ablations.py"
+  ],
+  "raw_checks": [
+    {
+      "check": "memory-wall cases",
+      "pass": true,
+      "detail": 64
+    },
+    {
+      "check": "memory-wall MPS rows",
+      "pass": true,
+      "detail": 192
+    },
+    {
+      "check": "memory-wall extra rows",
+      "pass": true,
+      "detail": 40
+    },
+    {
+      "check": "memory-wall failures",
+      "pass": true,
+      "detail": []
+    },
+    {
+      "check": "LightCone forward cases",
+      "pass": true,
+      "detail": 16
+    },
+    {
+      "check": "LightCone forward rows",
+      "pass": true,
+      "detail": 144
+    },
+    {
+      "check": "LightCone forward failures",
+      "pass": true,
+      "detail": []
+    },
+    {
+      "check": "LightCone Jacobian cases",
+      "pass": true,
+      "detail": 4
+    },
+    {
+      "check": "LightCone Jacobian rows",
+      "pass": true,
+      "detail": 30
+    },
+    {
+      "check": "LightCone Jacobian failures",
+      "pass": true,
+      "detail": []
+    },
+    {
+      "check": "policy cases",
+      "pass": true,
+      "detail": 480
+    },
+    {
+      "check": "policy count",
+      "pass": true,
+      "detail": 7
+    }
+  ],
+  "mismatches": [],
+  "tables": [
+    {
+      "label": "tab:rq1",
+      "generated_file": "paper/sections/generated/rq1_ratios.tex",
+      "generator": "benchmarks/summarize_direct.py",
+      "sha256_before": "a4c15de7497a63a105941301a31db30c65e986635c948a50a3e0c20b72324435",
+      "sha256_after": "a4c15de7497a63a105941301a31db30c65e986635c948a50a3e0c20b72324435",
+      "byte_identical": true,
+      "sources": [
+        {
+          "path": "results/direct/scaling_1t.json",
+          "sha256": "b4349f26548b7689af6cc1b740dee813ba0c67354f0ea8f3ab1c5dd48f7707b4"
+        },
+        {
+          "path": "results/direct/scaling_mt.json",
+          "sha256": "f7bced867cca7a1b590ad458a270450620af8a3bffdb03f5e28480b4674037d0"
+        }
+      ]
+    },
+    {
+      "label": "tab:backends",
+      "generated_file": "paper/sections/generated/backend_matrix.tex",
+      "generator": "benchmarks/summarize_direct.py",
+      "sha256_before": "5dc083ea65ca985fd9cd026da50e7710a0cec1127e4ec53e985ec33f5c45984e",
+      "sha256_after": "5dc083ea65ca985fd9cd026da50e7710a0cec1127e4ec53e985ec33f5c45984e",
+      "byte_identical": true,
+      "sources": [
+        {
+          "path": "results/direct/backend_matrix.json",
+          "sha256": "ae50918330325564dc59071d3ccb7e061ec618deaa4527dae7211ad55c60ca2c"
+        },
+        {
+          "path": "results/direct/scaling_1t.json",
+          "sha256": "b4349f26548b7689af6cc1b740dee813ba0c67354f0ea8f3ab1c5dd48f7707b4"
+        }
+      ]
+    },
+    {
+      "label": "artifact-only:remote-backend",
+      "generated_file": "paper/sections/generated/backend_matrix_nvidia-h100-pcie.tex",
+      "generator": "benchmarks/summarize_direct.py",
+      "sha256_before": "5d04775c00ce7078ca2b5cdde4e495b514ba405d0e18fdf307dccf147aa543ca",
+      "sha256_after": "5d04775c00ce7078ca2b5cdde4e495b514ba405d0e18fdf307dccf147aa543ca",
+      "byte_identical": true,
+      "sources": [
+        {
+          "path": "results/direct/remote/nvidia-h100-pcie/backend_matrix.json",
+          "sha256": "8250599a45ac0aa1704665c8e709b278811a8553e3a4df1269797c1b6aee9570"
+        }
+      ]
+    },
+    {
+      "label": "tab:memory-wall",
+      "generated_file": "paper/sections/generated/memory_wall.tex",
+      "generator": "benchmarks/summarize_direct.py",
+      "sha256_before": "039a648d29541b281fce72f2612430f7e4b26845c0cdab8535ede5f2a9ab42c7",
+      "sha256_after": "039a648d29541b281fce72f2612430f7e4b26845c0cdab8535ede5f2a9ab42c7",
+      "byte_identical": true,
+      "sources": [
+        {
+          "path": "results/direct/memory_wall.json",
+          "sha256": "7ed368ea76d53fc5b14c7376eb4d1c2e7594282cd23583e52b0bec345b6a09a0"
+        }
+      ]
+    },
+    {
+      "label": "tab:intermediate-cones",
+      "generated_file": "paper/sections/generated/intermediate_cones.tex",
+      "generator": "benchmarks/summarize_direct.py",
+      "sha256_before": "cce1bbcfdbe9437e2764672527c729b2a3cf64381a3154c82ea86c8d86445a7a",
+      "sha256_after": "cce1bbcfdbe9437e2764672527c729b2a3cf64381a3154c82ea86c8d86445a7a",
+      "byte_identical": true,
+      "sources": [
+        {
+          "path": "results/direct/memory_wall.json",
+          "sha256": "7ed368ea76d53fc5b14c7376eb4d1c2e7594282cd23583e52b0bec345b6a09a0"
+        }
+      ]
+    },
+    {
+      "label": "tab:jacobian",
+      "generated_file": "paper/sections/generated/jacobian.tex",
+      "generator": "benchmarks/summarize_direct.py",
+      "sha256_before": "7f6336a10eb82fd0a873d3f652b205524e244fa3fa843d7a8fc2462ebc24822c",
+      "sha256_after": "7f6336a10eb82fd0a873d3f652b205524e244fa3fa843d7a8fc2462ebc24822c",
+      "byte_identical": true,
+      "sources": [
+        {
+          "path": "results/direct/jacobian_1t.json",
+          "sha256": "0e7984b85cebf5ca72f29417f34a555bfa83b3ba761d953a665c49f9b4e8657f"
+        },
+        {
+          "path": "results/direct/jacobian_mt.json",
+          "sha256": "107af4e94e4a0069b48f47fd6fb7190d8a1113b54c4a7f6d16114a7e19344466"
+        },
+        {
+          "path": "results/direct/jacobian_mt_chunked24.json",
+          "sha256": "c17d1f43f89c4f7b98ef916a3e22f7b0090ce7033724f910a276ee58a1c6d64e"
+        }
+      ]
+    },
+    {
+      "label": "tab:training",
+      "generated_file": "paper/sections/generated/training.tex",
+      "generator": "benchmarks/summarize_direct.py",
+      "sha256_before": "e9512cea48c8722bf58653d19906fe7b6744c755ea510610e6e926580e9bdb93",
+      "sha256_after": "e9512cea48c8722bf58653d19906fe7b6744c755ea510610e6e926580e9bdb93",
+      "byte_identical": true,
+      "sources": [
+        {
+          "path": "results/direct/training_1t.json",
+          "sha256": "ba406226c06d7c6f1783e1f656d87fb52e6f7266e1cc4d769e6ccc69b07c122b"
+        },
+        {
+          "path": "results/direct/training_mt.json",
+          "sha256": "26ee7134c60ff0afa480266d825eeea295f78c073dc224cea135efe93de56ffd"
+        }
+      ]
+    },
+    {
+      "label": "tab:remote",
+      "generated_file": "paper/sections/generated/remote_ratios_nvidia-h100-pcie.tex",
+      "generator": "benchmarks/summarize_direct.py",
+      "sha256_before": "b87a052fb3d36f0b33ce4713127df9a7e841227167fa4265de685e5ddfdd7f3a",
+      "sha256_after": "b87a052fb3d36f0b33ce4713127df9a7e841227167fa4265de685e5ddfdd7f3a",
+      "byte_identical": true,
+      "sources": [
+        {
+          "path": "results/direct/scaling_1t.json",
+          "sha256": "b4349f26548b7689af6cc1b740dee813ba0c67354f0ea8f3ab1c5dd48f7707b4"
+        },
+        {
+          "path": "results/direct/scaling_mt.json",
+          "sha256": "f7bced867cca7a1b590ad458a270450620af8a3bffdb03f5e28480b4674037d0"
+        },
+        {
+          "path": "results/direct/remote/nvidia-h100-pcie/scaling_1t.json",
+          "sha256": "d3886f4571ccdbc35cbfd52eced5e2cee8d2e064cebfd15c75ec4c378f81e089"
+        },
+        {
+          "path": "results/direct/remote/nvidia-h100-pcie/scaling_mt.json",
+          "sha256": "36080a2ac2002f8bf905095a7f5933c82dca1cf7af6e37581fb56de739e32301"
+        }
+      ]
+    },
+    {
+      "label": "tab:heldout",
+      "generated_file": "paper/sections/generated/heldout_families.tex",
+      "generator": "benchmarks/paper_generalization_tables.py",
+      "sha256_before": "5971cc258fdd0ff5be31dacf45c420c64e99393c82a06ae5d16d4ba7f99dd8c4",
+      "sha256_after": "5971cc258fdd0ff5be31dacf45c420c64e99393c82a06ae5d16d4ba7f99dd8c4",
+      "byte_identical": true,
+      "sources": [
+        {
+          "path": "results/qml_workloads/qml_heldout_family_summary.json",
+          "sha256": "72846c6fd45cbee9838fbf4290f5e3f66b81fbd2b5f858b3bf9672238f65baae"
+        }
+      ]
+    },
+    {
+      "label": "tab:regret",
+      "generated_file": "paper/sections/generated/regret_decomposition.tex",
+      "generator": "benchmarks/paper_generalization_tables.py",
+      "sha256_before": "2ee72a20d5e7030eccd16b25485d69f2a9ecdb40536f713aa09d852d1f1a37f1",
+      "sha256_after": "2ee72a20d5e7030eccd16b25485d69f2a9ecdb40536f713aa09d852d1f1a37f1",
+      "byte_identical": true,
+      "sources": [
+        {
+          "path": "results/qml_workloads/grouping_oracle.json",
+          "sha256": "920174aa408c767a8c1fcdfa56512d472eecf7342c82456e85e1f25527bab026"
+        },
+        {
+          "path": "results/qml_workloads/grouping_oracle_heldout.json",
+          "sha256": "f1cf5ab2e6d3fe76a901ff69719d8af764f7af185cef5695a11f5e1630ea1823"
+        }
+      ]
+    },
+    {
+      "label": "tab:trained",
+      "generated_file": "paper/sections/generated/trained_models.tex",
+      "generator": "benchmarks/paper_generalization_tables.py",
+      "sha256_before": "86e21dbee567e783e51dbc1647ea05804390f94212475bcb68660fd5d60e0fb3",
+      "sha256_after": "86e21dbee567e783e51dbc1647ea05804390f94212475bcb68660fd5d60e0fb3",
+      "byte_identical": true,
+      "sources": [
+        {
+          "path": "results/qml_workloads/trained_iris_qml_v3.json",
+          "sha256": "d63438f89aef0dadeeb27d19860dce807cb344f44a8295ab094d0bde8ff8277d"
+        },
+        {
+          "path": "results/qml_workloads/fourier_trained_qml.json",
+          "sha256": "c12552ba28218f5b737d76bc091df65447d130c4f584af9851079e5be2f12aa5"
+        }
+      ]
+    },
+    {
+      "label": "tab:policy-ablations",
+      "generated_file": "paper/sections/generated/policy_ablations.tex",
+      "generator": "benchmarks/summarize_policy_ablations.py",
+      "sha256_before": "85a5f8ca4f55688a23f1f7491b772757823a56e5dde1ec22c97a09ba6ad57bcf",
+      "sha256_after": "85a5f8ca4f55688a23f1f7491b772757823a56e5dde1ec22c97a09ba6ad57bcf",
+      "byte_identical": true,
+      "sources": [
+        {
+          "path": "results/qml_workloads/qml_heldout_family_session0.json",
+          "sha256": "f8607392e4b3bb1deb44da64aa5143e6ce1975a75951f0c595930267f43d53b3"
+        },
+        {
+          "path": "results/qml_workloads/qml_heldout_family_session1.json",
+          "sha256": "13bfa2fd984dd3a7e046f1abd59420456b2931083ab5ec174d04935ada5b3a59"
+        }
+      ]
+    },
+    {
+      "label": "tab:lightcone-ablation",
+      "generated_file": "paper/sections/generated/lightcone_ablation.tex",
+      "generator": "benchmarks/summarize_lightcone_ablation.py",
+      "sha256_before": "5a261758b60c709f94387ecf53f344d1d220ac80a445001011cf1c3d3435ef9f",
+      "sha256_after": "5a261758b60c709f94387ecf53f344d1d220ac80a445001011cf1c3d3435ef9f",
+      "byte_identical": true,
+      "sources": [
+        {
+          "path": "results/direct/lightcone_ablation.json",
+          "sha256": "a28aef617a66d3b8dc7b47d56c5ceaf29d8235ea99f8833ba6aa3a98bc6af3ab"
+        },
+        {
+          "path": "results/direct/lightcone_jacobian_ablation.json",
+          "sha256": "f7530a38775af7aa647e239595765feca6ef8b8c6e1f2888888de2c594a6cfcc"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,36 @@
+\section{Introduction}
+\label{sec:intro}
+\IEEEPARstart{C}{lassical} simulation remains the workhorse behind the design, training and verification of variational quantum algorithms and quantum machine learning (QML) models. Whether a variational eigensolver~\cite{peruzzo2014variational}, a QAOA instance~\cite{farhi2014quantum} or a quantum classifier is being studied, the simulator is asked the same kind of question over and over again: the expectation value $\langle\psi(\mathbf{x},\boldsymbol\theta)|O_k|\psi(\mathbf{x},\boldsymbol\theta)\rangle$ of a set of observables, for a set of data examples $\mathbf{x}$ and parameter values $\boldsymbol\theta$. A single training step of a model with $P$ trainable rotations and $K$ readout observables already involves $K$ outputs per prepared state, one state per data example and, when gradients are obtained with the parameter-shift rule~\cite{schuld2019gradients}, $2P$ additional shifted circuits per example.
+
+The most common way of answering these questions is direct dense simulation: prepare the full state vector of every requested circuit and evaluate all its observables from it. Hardware has made this approach remarkably fast. Multi-threaded CPU simulators and GPU state-vector libraries such as cuStateVec~\cite{bayraktar2023cuquantum}, Qiskit Aer~\cite{javadi2024qiskit} or PennyLane Lightning~\cite{asadi2024lightning} apply each gate to $2^n$ amplitudes at the speed of the device memory. However, the amount of work they perform is fixed by the circuit and not by the question. A direct simulator updates every amplitude for every gate of every requested circuit, even when the requested observables only depend on a handful of qubits, and the whole state has to fit in the memory of the device, which for GPUs is usually smaller than that of the host.
+
+Data processing systems faced a similar situation long ago, and their answer was not only faster storage but also query optimizers. Spark SQL~\cite{armbrust2015sparksql} or Polars~\cite{polarsoptimizations} separate the declaration of a query from its execution, so that columns the query does not need are never read and shared subexpressions are computed once. Batched expectation workloads expose three analogous opportunities:
+\begin{itemize}
+\item \textbf{Irrelevance.} Gates outside the backward causal cone of an observable cannot influence its expectation value. For local observables on shallow circuits, most of the circuit is irrelevant to each output.
+\item \textbf{Redundancy.} Different outputs, data examples and shifted circuits often reduce to identical cone circuits, which only need to be simulated once.
+\item \textbf{Repetition.} The circuit topology stays the same across data examples, parameter shifts and training steps, so the analysis that exposes the first two opportunities can be shared as well.
+\end{itemize}
+
+None of these ingredients is new on its own. Light-cone reduction for local expectations is available in tensor-network packages~\cite{gray2018quimb}, as a commutation-aware transpiler pass in Qiskit~\cite{qiskitlightcone} and as an option of NVIDIA's cuTensorNet~\cite{cutensornetlightcone}. Our contribution is not another cone-reduction pass. It is the batch decision layer above such mechanisms: which reduced circuits should be shared, whether their analysis repays itself, when dense execution should be retained, and where the remaining tasks should run. This terminal-observable planning problem is complementary to shared-prefix reuse in QuWARP~\cite{littau2026quwarp} and circuit-level backend selection in Maestro~\cite{bertomeu2025maestro}, distinctions we make precise in Section~\ref{sec:background}.
+
+We present \textsc{LazyQC}, a Python framework that defers the simulation of a batch of bound expectation requests until the whole batch is known. It computes support-based cones once per circuit topology and observable support, groups identical bound cone preparations across outputs, data examples and parameter shifts, keeps the dense plan when analysis cannot repay itself, and places wide tasks on a GPU while narrow ones stay on the CPU. Its own analysis time is charged in every measurement. Rather than asking whether a planner can replace a fast simulator, we ask which part of the requested work needs to be simulated at all, and what is left for the hardware to accelerate.
+
+\textbf{What LazyQC adds beyond existing methods.} The evaluated contribution is the combination and validation of four mechanisms, not the invention of their individual building blocks:
+\begin{itemize}
+\item A batch-planning formulation whose objective includes analysis, setup and execution, with an explicit dense fallback and separate coverage, ranking and analysis-overhead regret.
+\item Structure-keyed cone analysis and exact bound-circuit grouping across programs. A shift outside an output's cone reuses that output's preparation without requiring the full circuits to share a prefix.
+\item A measured comparison against per-request Qiskit \texttt{LightCone} reduction followed by Aer, including exact reduced-circuit deduplication, as well as direct GPU simulation, a shared exact global MPS and reused light-cone tensor contraction.
+\item A decision-quality evaluation against forced plans, exhaustive small-batch partitions and simple width-only policies, reporting cross-validated median and tail regret and false reduction decisions on 480 held-out instances.
+\end{itemize}
+
+We also delimit the claim. \textsc{LazyQC} does not perform arbitrary 128-qubit dense simulation: its large-width results simulate cones of at most 10 qubits. Qiskit's commutation-aware pass can remove gates retained by our conservative support traversal. Exact MPS is competitive on shallow circuits and succeeds on saturated cases that our state-vector planner refuses. Small trained classifiers, saturated cones and full-Jacobian comparisons against scalar-loss adjoint gradients are reported as separate regimes, not as evidence of universal simulator superiority.
+
+We organize the evaluation around four research questions:
+\begin{itemize}
+\item \textbf{RQ1:} Where does observable-driven planning beat direct dense and tensor-network execution, once its own cost is charged?
+\item \textbf{RQ2:} Does the advantage survive full-Jacobian and scalar-loss gradient workloads, including per-request LightCone and adjoint baselines?
+\item \textbf{RQ3:} How close are the planner's decisions to the best available plan, and what do they cost relative to simple policies?
+\item \textbf{RQ4:} Which mechanisms do not pay off, and why?
+\end{itemize}
+
+The remainder of this paper is structured as follows. Section~\ref{sec:background} reviews the workloads, simulation methods and related planning work. Section~\ref{sec:system} describes \textsc{LazyQC} and its planning model. Section~\ref{sec:method} details the experimental methodology and Section~\ref{sec:evaluation} reports the results for each research question. Section~\ref{sec:discussion} discusses their implications and limitations, and Section~\ref{sec:conclusion} concludes.

@@ -1,0 +1,18 @@
+{
+  "title": "LazyQC: Avoiding Simulation Work in Batched Quantum Expectation Workloads (research artifact)",
+  "upload_type": "software",
+  "description": "Library source, benchmark runners, frozen manifests, raw repetitions, summaries and paper sources for the LazyQC study. SHA256SUMS and ARTIFACT.json inside the archive record file hashes, the git commit and the environment.",
+  "creators": [
+    {
+      "name": "Montalbán, Iraitz",
+      "affiliation": "University of Oviedo"
+    }
+  ],
+  "license": "Apache-2.0",
+  "keywords": [
+    "quantum circuit simulation",
+    "observable light cones",
+    "batch planning",
+    "quantum machine learning"
+  ]
+}

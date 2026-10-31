@@ -1,0 +1,13 @@
+\begin{tabular}{lrrrrrr}
+\toprule
+Policy & Med. & p90 & Narrow & Saturated & FP & FN\\
+\midrule
+LazyQC \texttt{auto} & 1.055 & 1.534 & 0.004 & 1.095 & 26 & 5\\
+Always full & 1.000 & 5.226 & 1.056 & 1.062 & 0 & 189\\
+Always separate (per-output cone) & 2.797 & 7.424 & 0.004 & 3.144 & 291 & 0\\
+Always grouped & 1.779 & 5.886 & 0.004 & 2.822 & 291 & 0\\
+Width rule $w<n$ & 1.140 & 1.576 & 0.004 & 1.139 & 10 & 124\\
+Width rule $2w\leq n$ & 1.165 & 1.694 & 0.004 & 1.139 & 0 & 154\\
+Width rule $w\leq10$ & 1.152 & 3.188 & 0.004 & 1.150 & 95 & 119\\
+\bottomrule
+\end{tabular}

@@ -1,0 +1,71 @@
+\section{LazyQC: Planning Batched Expectation Requests}
+\label{sec:system}
+\begin{figure*}[!t]
+\centering
+\resizebox{\textwidth}{!}{%
+\begin{tikzpicture}[
+ box/.style={draw, rounded corners=2pt, align=center, text width=3.6cm, minimum height=1.15cm, font=\small, fill=black!3},
+ dev/.style={draw, rounded corners=2pt, align=center, text width=3.0cm, minimum height=0.9cm, font=\small, fill=black!8},
+ arr/.style={-{Stealth}, thick}]
+\node[box] (queries) at (0,0) {\textbf{Bound programs and requests}\\Classical descriptions only};
+\node[box] (analysis) at (5.4,0) {\textbf{Structure-keyed analysis}\\Cones once per topology\\and support; charged $H_A$};
+\node[box] (select) at (10.4,0) {\textbf{Budget and selection}\\Dense, separate or grouped\\under payload limits};
+\node[box] (plan) at (15.4,0) {\textbf{Immutable exact plan}\\Tasks, widths, outputs};
+\node[dev] (cpu) at (13.2,-2.2) {\textbf{Narrow tasks}\\Qulacs, one CPU thread};
+\node[dev] (gpu) at (17.2,-2.2) {\textbf{Wide tasks} ($w\ge w^\star$)\\Aer GPU state vector};
+\draw[arr] (queries) -- node[above,font=\footnotesize] {\texttt{plan\_all}} (analysis);
+\draw[arr] (analysis) -- (select);
+\draw[arr] (select) -- (plan);
+\draw[arr] (plan.south) -- node[left,font=\footnotesize,yshift=2pt] {\texttt{collect}} (cpu.north);
+\draw[arr] (plan.south) -- (gpu.north);
+\draw[arr, dashed] (queries.south) |- node[below,font=\footnotesize,pos=0.75] {analysis cannot repay: keep the dense plan} (select.south west);
+\end{tikzpicture}%
+}
+\caption{Planning and execution in \textsc{LazyQC}. Building requests allocates no simulator state. Planning extracts cones once per topology and observable support, keeps the dense plan when its predicted cost is below that of the analysis, and selects a feasible plan; the analysis charge $H_A$ is included in every end-to-end measurement. Collection allocates fresh states, running narrow tasks on the CPU and, when a wide backend is supplied, tasks of at least $w^\star$ qubits on a GPU. Everything in this execution path is exact. The opt-in approximate sensitivity extension is separate (Appendix~\ref{app:sensitivity}).}
+\label{fig:architecture}
+\end{figure*}
+
+\subsection{Requests, plans and collection}
+Programs are immutable descriptions of gates on wires, with rotations $R_P(\theta)=\exp(-i\theta P/2)$ and parameters that can remain symbolic until they are bound. A request pairs a bound program with a Pauli observable. Users build a list of requests, call \texttt{plan\_all} to obtain an immutable plan and execute it with \texttt{collect}. Planning is purely classical and allocates no simulator state. Collection allocates fresh states, evaluates the requested expectations and assembles them in request order. No numerical value survives a collection, so collecting a plan twice repeats the simulation instead of returning stale results.
+
+A plan is a set of tasks, each of them a circuit on a contiguous local register together with the outputs it serves. The planner builds three candidate plans:
+\begin{itemize}
+\item \textbf{Full:} one task per distinct bound program, evaluating all of its outputs from the dense state. This is what a direct simulator does.
+\item \textbf{Separate:} one cone task per output.
+\item \textbf{Grouped:} one task per distinct cone circuit, shared by every output whose cone coincides with it, including outputs of different programs.
+\end{itemize}
+Sharing requires equality of the bound cone circuit, not of the observable or of the program. Two data examples or two shifted circuits that only differ outside an output's cone therefore share that output's task. The \textbf{separate} candidate is an internal ablation over our support-based cones, not a stand-in for Qiskit's commutation-aware \texttt{LightCone} pass; Section~\ref{sec:rq3} evaluates the actual Qiskit pass followed by Aer. Candidates whose widest task exceeds \texttt{max\_state\_qubits}, or whose state payload exceeds \texttt{max\_state\_bytes}, are rejected. The remaining ones are ranked by the work score
+\begin{equation}
+W=\sum_g 2^{m_g}\left(1+|C_g|+|\mathcal{G}_g|\right)
+\label{eq:work-score}
+\end{equation}
+for task width $m_g$, gate count $|C_g|$ and output count $|\mathcal{G}_g|$, or by a calibrated execution-time model when one is supplied.
+
+\subsection{Structure-keyed analysis}
+Cone membership depends only on the wires each gate touches, never on its angle. The planner exploits this by keying its analysis on structure. For every distinct topology in the batch (the sequence of gate names and wires) and every distinct observable support, it computes the indices of the retained gates once. Each request then gathers the angles of those gates from its own bound program, and its grouping key is the pair formed by an interned cone shape and those angles. Equal keys mean equal cone circuits, exactly as comparing the gate sequences would, but the cost per request becomes proportional to the size of its cone instead of the size of the circuit. In a parameter-shift batch, where the base program and its $2P$ shifted versions share one topology, cones are computed once per output instead of once per request.
+
+We verified the new analysis against the original per-request implementation on 60 randomized batches under all four strategies, 240 cases that mix shared and distinct topologies, equal programs held as distinct objects and identity observables. All candidate plans coincide task for task. On a 20-qubit hardware-efficient Jacobian batch with 3,220 requests, planning time fell from 262 to 26\,ms, which is what makes the gradient workloads of Section~\ref{sec:gradients} practical.
+
+\subsection{Analysis budget}
+Analysis can save at most the dense execution it replaces. When the dense plan is feasible and its predicted cost $\widehat T_{\mathrm{dense}}$ is below the predicted analysis cost $\widehat H$, no cone plan can repay the analysis, so \texttt{auto} keeps the dense plan without building cone candidates. We use
+\begin{align}
+\widehat T_{\mathrm{dense}}&=\sum_{p}\left(a_0+a_1G_p+\left(a_2G_p+a_3K_p\right)2^{n_p}\right),\\
+\widehat H&=b_0+b_1\sum_r G_r,
+\end{align}
+where the first sum runs over the distinct programs $p$, with $n_p$ qubits, $G_p$ gates and $K_p$ requested outputs, and the second over the requests $r$. The coefficients were fitted by relative non-negative least squares on 312 seeded random circuits from 2 to 14 qubits, unrelated to the evaluation families. The fit gives $a_2\approx1.0$\,ns per amplitude-gate and $b_1\approx0.22\,\mu$s per request gate, with median relative errors of 14\% and 22\%. The rule is deliberately conservative, since it only skips analysis that could not pay even if every cone were free. It does not apply when the dense plan is infeasible, when a planning cache signals reuse or when a calibrated model is used, and \texttt{analysis="always"} restores exhaustive planning.
+
+\subsection{Backends and placement}
+A plan is independent of the simulator that executes it. \texttt{collect} accepts any backend able to lower a task, evolve it and return its expectation values. Besides single-thread Qulacs, the default, the prototype provides adapters for the CPU and GPU state vectors of Qiskit Aer and PennyLane Lightning, and for tensor-network contraction with quimb, which applies its own light-cone simplification to every local expectation. Only Qulacs executes the projector tasks of cut plans.
+
+After planning, tasks can differ in size by many orders of magnitude. A narrow cone task of a few kilobytes takes microseconds on a CPU, much less than the fixed cost of running a circuit on a GPU, while a saturated full-width task benefits from the GPU's bandwidth. \texttt{collect} therefore also accepts a wide backend and a width threshold $w^\star$. Unitary tasks with at least $w^\star$ qubits run on the wide backend and the rest stay on the main one. Our wide backend is the GPU state vector of Qiskit Aer in double precision, and $w^\star=14$ is the per-task crossover measured on our host (Section~\ref{sec:method}). Placement happens after selection. The work score assumes a state vector and does not know which backends are available, so selecting plans, representations and devices jointly remains future work.
+
+\subsection{Total cost and decision quality}
+Let $\mathcal{F}$ be the feasible complete plans of a declared portfolio, and let an analysis policy $A$ generate a subset $\mathcal{G}_A\subseteq\mathcal{F}$ at cost $H_A$. With plan-specific setup $S(p)$ and per-collection cost $T_r(p)$ over $R$ collections, $C_R(p)=S(p)+\sum_{r=1}^R T_r(p)$, and the objective is
+\begin{equation}
+\min_{A,\,p\in\mathcal{G}_A}\;H_A+C_R(p).
+\label{eq:planning-objective}
+\end{equation}
+For a selected plan $\hat p$, the excess cost over the best member of $\mathcal{F}$ decomposes into the analysis overhead $H_A$, a ranking regret $\Delta_{\mathrm{rank}}=C_R(\hat p)-\min_{\mathcal{G}_A}C_R$ and a coverage regret $\Delta_{\mathrm{cov}}=\min_{\mathcal{G}_A}C_R-\min_{\mathcal{F}}C_R$. If every prediction is within $d$ of the true cost, then $\Delta_{\mathrm{rank}}\le 2d$. Direct dense execution is the policy with $H_A=0$ and $\mathcal{G}_A=\{\text{full}\}$, and the analysis budget is the rule that falls back to it when $\widehat H$ exceeds the most that analysis could save. These are accounting identities rather than new mathematics, but they make explicit what every measurement below charges: the cost of deciding, and not only the cost of executing.
+
+\subsection{Extensions}
+The same planning boundary hosts several mechanisms that we evaluate as extensions. A joint batch planner searches request groups and exact CX channel cuts under fragment-width limits, using whole-program original, locally simplified and PyZX-verified rewrite variants as candidate circuits. It can replay a recorded structural plan for new bindings when the rewritten topology and the equality pattern of the bound preparations are unchanged. A persistent process pool executes independent tasks in parallel under an aggregate payload limit. Finally, an opt-in sensitivity profile admits zero-angle substitutions under per-output error budgets, using the conditional bound of Appendix~\ref{app:sensitivity}. An earlier version of the replay path could accept a template for a batch whose programs had different bindings, and a shortcut could select a candidate that did not cover every output. Both paths now validate the equality partition of bound preparations and the completeness of every candidate, with regression tests covering mixed bindings, duplicate outputs, constants, changed observables and rewrite-induced topology changes.

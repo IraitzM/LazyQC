@@ -1,0 +1,38 @@
+\input{sections/14_sensitivity_tables}
+
+\subsection{Proof of Theorem~\ref{thm:observable-error}}
+\begin{IEEEproof}
+For a Pauli rotation channel $\mathcal U_g$, define $\mathcal D_g(A)=-i[P_g/2,A]$. Then $\partial_g\mathcal U_g=\mathcal D_g\mathcal U_g$ and $\partial_g^2\mathcal U_g=\mathcal D_g^2\mathcal U_g$. Since $\|P_g\|_\infty=1$,
+\begin{equation}
+ \|\mathcal D_g(A)\|_1\leq\|P_gA\|_1/2+\|AP_g\|_1/2\leq\|A\|_1.
+\end{equation}
+Every unitary channel preserves trace norm. Differentiating a circuit once or twice inserts one or two such derivative maps. This also covers two derivatives of the same occurrence. Using $\|\rho\|_1=1$ and $|\operatorname{Tr}(O_k A)|\leq\|O_k\|_\infty\|A\|_1$ therefore gives
+\begin{equation}
+ |\partial_g f_k(\vartheta)|\leq1,\qquad
+ |\partial_g\partial_h f_k(\vartheta)|\leq1
+ \label{eq:uniform-derivative-bounds}
+\end{equation}
+at every angle vector $\vartheta$, not only the profiled point. A structural backward cone contains every gate that can affect the evolved observable. Changing angles leaves gate supports fixed, so derivatives involving an occurrence outside $C_k$ vanish identically.
+
+Put $q(t)=f_k(\theta+t\delta)$. Equation~\eqref{eq:uniform-derivative-bounds} implies $|q'(t)|\leq L_k$ and $|q''(t)|\leq L_k^2$. Taylor's integral identity gives
+\begin{equation}
+ q(1)-q(0)=J_k\delta+\int_0^1(1-t)q''(t)\,dt.
+\end{equation}
+Taking absolute values bounds the remainder by $L_k^2/2$. Integrating the first-derivative bound yields $L_k$, while the range of a norm-one observable yields two. Taking their minimum proves Eq.~\eqref{eq:ideal-sensitivity-bound}.
+
+For sharpness, compose $m$ single-qubit $R_Y$ occurrences on $|0\rangle$, all at zero, and request $Z$. Perturb every occurrence by $d$. The gradient at the starting point vanishes, but the output change is $1-\cos(md)$ with $L=m|d|$. Consequently,
+\begin{equation}
+ \lim_{d\to0}\frac{1-\cos(md)}{(m d)^2}=\frac12.
+\end{equation}
+No smaller uniform coefficient can replace $1/2$ in the quadratic remainder. The same example shows why counting shared occurrences is necessary. Expanding around a total rotation of $\pi/2$ similarly saturates the linear bound to first order.
+
+Finally, with the structural zeros enforced, $|(\widehat J_k-J_k)\delta|\leq\eta L_k$. Adding this to the Taylor term and allowing error $\eta$ at each independently evaluated endpoint proves Eq.~\eqref{eq:sensitivity-bound}. This last step is conditional on the stated numerical error bounds and exact evaluation of the bound expression itself.
+\end{IEEEproof}
+
+The theorem is an application of unitary derivative bounds and Taylor's integral remainder, not an inference from a finite sample. The two corollaries add sufficient precision and reduced-evaluation conditions for this planner. The experiments validate particular implementations and timing hypotheses; they do not establish a universal speedup or the novelty of the underlying mathematical inequalities.
+
+\subsection{Sensitivity Reproducibility}
+
+The implementation assumes $\eta=10^{-10}$ in the study. Independent double-precision agreement does not prove this allowance or establish outward rounding of the computed bound. The bound is consequently an analytic error-control rule with an explicit numerical assumption. The evaluated program must already be feasible; neither small gradients nor approximate candidates supply otherwise unavailable exact profiles.
+
+\path{src/lazyqc/sensitivity.py} implements profiling and bounded candidate search. \path{benchmarks/run_sensitivity.py} defines the cases; \path{tests/test_sensitivity.py} includes independent dense-matrix and analytic regression tests. Raw final observations reside in \path{results/sensitivity/session0/} through \path{results/sensitivity/session2/}; \path{results/sensitivity/frozen_source/} contains their measured source snapshot. Pilot runs are excluded from aggregation. \path{benchmarks/summarize_sensitivity.py} validates source hashes and produces the summary; \path{docs/SENSITIVITY.md} specifies cost scopes and reproduction. Native thread counts are fixed at one on the same unpinned, heterogeneous i7-13700H host used for the local-worker study. Summed RSS includes shared pages more than once and may retain allocations from earlier exact collections.

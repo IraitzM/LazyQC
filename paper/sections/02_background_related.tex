@@ -1,0 +1,58 @@
+\section{Background and Related Work}
+\label{sec:background}
+\subsection{Expectation workloads in variational algorithms and QML}
+A parametrized model prepares $|\psi(\mathbf{x},\boldsymbol\theta)\rangle=U(\mathbf{x},\boldsymbol\theta)|0\rangle^{\otimes n}$ and reads out expectation values $f_k=\langle\psi|O_k|\psi\rangle$ of Pauli observables. Three request patterns dominate the resulting workload. Forward evaluation requests $K$ outputs of one state. Mini-batch training requests them for several data examples, each of them a different bound circuit with the same topology. Gradient evaluation requests the outputs of shifted circuits: for a rotation $R_P(\theta)=\exp(-i\theta P/2)$, the parameter-shift rule gives the exact derivative
+\begin{equation}
+\partial_g f_k=\tfrac12\left[f_k(\boldsymbol\theta+\tfrac\pi2 e_g)-f_k(\boldsymbol\theta-\tfrac\pi2 e_g)\right]
+\label{eq:shift}
+\end{equation}
+for each rotation occurrence $g$~\cite{schuld2019gradients}, so a full Jacobian with respect to $P$ occurrences needs $2P$ shifted circuits per example. On quantum hardware this rule is the standard option. On a state-vector simulator, adjoint differentiation~\cite{jones2020adjoint} obtains all derivatives of one observable from a forward pass and a backward pass, and it is therefore the natural reference for gradient workloads in simulation. A full $K\times P$ Jacobian and the gradient of one scalar loss are different objects: the latter needs only a vector-Jacobian product, which we evaluate separately.
+
+Local observables are not an artificial choice. Shallow circuits with local cost functions are precisely the ones known to avoid cost-function-induced barren plateaus~\cite{cerezo2021cost}, and hardware-efficient~\cite{kandala2017hardware}, convolutional~\cite{cong2019qcnn} and data re-uploading~\cite{perezsalinas2020reuploading} architectures are standard building blocks of QML models. As we shall see, these architectures differ precisely in how fast the causal cones of their outputs grow.
+
+\subsection{Causal cones and multi-observable interfaces}
+For a circuit $U=U_D\cdots U_1$ and an observable $O$,
+\begin{equation}
+\langle O\rangle=\langle 0^{\otimes n}|U^\dagger O U|0^{\otimes n}\rangle.
+\end{equation}
+Propagating $O$ backwards, any gate acting on wires disjoint from the current support commutes with it and cancels against its adjoint. The remaining gates form the backward causal cone of $O$, and the number of wires they touch is its width $w$. With a product input, the expectation can be evaluated on a $w$-qubit state of $16\cdot 2^w$ bytes instead of $16\cdot 2^n$. Our traversal uses wire supports only. This is a sufficient condition that can overestimate the minimal cone, since a gate that overlaps the propagated operator but commutes with it is kept.
+
+How fast the cone grows depends on the architecture. In a brickwork of nearest-neighbour entanglers, the cone of a local observable widens by a few wires per layer, so at fixed depth its width does not depend on $n$. A layer of entanglers chained along the whole register, as in our data re-uploading family, spreads it over every wire after a single layer. The first case is where dense simulation performs exponentially more work than needed; the second is where nothing can be avoided.
+
+Light-cone reduction is supported by several tools. quimb~\cite{gray2018quimb} simplifies local expectation networks by reverse light-cone cancellation, Qiskit provides a \texttt{LightCone} transpiler pass for a measurement or an observable~\cite{qiskitlightcone}, and cuTensorNet's \texttt{CircuitToEinsum} offers a light-cone option for Pauli expectations~\cite{cutensornetlightcone}. Qiskit's implementation also checks commutation with previously retained operations; it can therefore produce smaller circuits than our support-only traversal. We compare against that implementation directly rather than treating our separate plan as an equivalent proxy. Eddins et al.~\cite{eddins2024lightcone} bound the influence of gates inside the cone for error mitigation. Heisenberg-picture Pauli propagation evaluates local expectations by tracking and, in approximate variants, truncating the propagated operator~\cite{begusic2023perturbation,lerch2026patches}.
+
+Multi-observable expectation APIs, including Cirq's expectation-value interface~\cite{cirqexpectations}, already allow several outputs to be evaluated from a prepared state. That interface and a batch planner solve different problems: the former supplies outputs to an execution engine, while the latter chooses which circuits and preparations should exist across outputs and programs. Similarly, the cuTensorNet documentation notes that reducing each network to its light cone can prevent reuse of one contraction path for all Pauli strings. Reduction and reuse must therefore be decided together rather than assumed to compose for free.
+
+\subsection{Direct dense simulation on CPUs and GPUs}
+State-vector simulators store all $2^n$ complex amplitudes and apply each gate as a sweep over them. For the circuits considered here the cost is dominated by memory traffic, roughly proportional to $G\,2^n$ for $G$ gates, and GPUs accelerate it through their higher memory bandwidth. Qulacs~\cite{suzuki2021qulacs} provides fast CPU kernels; Qiskit Aer~\cite{javadi2024qiskit} adds gate fusion, which merges consecutive gates into larger unitaries to reduce the number of sweeps on both CPUs and GPUs; and PennyLane Lightning~\cite{asadi2024lightning} builds on cuStateVec~\cite{bayraktar2023cuquantum} and supports adjoint differentiation on the GPU. All of them pay a fixed overhead per circuit, which on a GPU includes kernel launches and host-device communication, and all of them need the full state to fit in device memory. These two constants define the competition for any planner: a GPU lowers the cost of each amplitude-gate update, while planning changes how many updates are needed.
+
+Tensor networks exploit a different resource. A global MPS prepares one shared representation from which all requested local expectations can be read, at a cost governed by bond dimension rather than by dense state-vector width alone. General contraction can instead simplify each local-expectation network and share contraction paths or intermediates. A per-output cone speedup over dense simulation does not imply a speedup over either representation, which is why our revised evaluation includes a shared exact global MPS and reused-circuit light-cone contraction as separate baselines.
+
+\subsection{Planning, reuse and partitioning}
+Several systems plan a simulation before executing it. Table~\ref{tab:prior-art} locates the unit of reuse or selection that matters for this paper. Maestro~\cite{bertomeu2025maestro} uses calibrated runtime models to select a simulation backend. QuWARP~\cite{littau2026quwarp} plans the materialization of exact typed boundary artifacts for shared circuit prefixes, with profitability checks, abstention and inspectable decisions. cotengra's multi-tree interface prices recomputation, caching and peak memory for shared tensor contractions~\cite{cotengramulti}. Gate-level pre-compilation reuses compilation work across recurring problems~\cite{quetschlich2023precompilation}, and Quff~\cite{quff2024} records quantum operations lazily until a measurement is requested. Neither simulator selection nor reuse is therefore new by itself.
+
+\begin{table*}[!t]
+\caption{Prior-Art Boundaries for Batched Expectation Planning. The Comparison Concerns the Object Being Reused or Selected, Not Whether the Underlying Optimization Exists.}
+\label{tab:prior-art}
+\centering
+\footnotesize
+\setlength{\tabcolsep}{5pt}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{llll}
+\toprule
+System & Reuse or planning object & Decision emphasized & Comparison in this paper\\
+\midrule
+Qiskit \texttt{LightCone}~\cite{qiskitlightcone} & Commutation-aware circuit for one observable & Which gates can be removed & Per-request pass + Aer, with exact deduplication\\
+quimb / cotengra~\cite{gray2018quimb,cotengramulti} & Expectation networks, paths and intermediates & How to contract and share & Shared exact MPS and reused light-cone contraction\\
+QuWARP~\cite{littau2026quwarp} & Shared prefixes and typed boundary artifacts & When continuation reuse pays & Complementary temporal reuse; no head-to-head claim\\
+Maestro~\cite{bertomeu2025maestro} & Circuit/backend assignment & Which simulator to use & Backend selection is related, not cone grouping\\
+\midrule
+\textsc{LazyQC} (this work) & Bound terminal-cone preparations across programs & Which batch plan, if any, repays analysis & End-to-end plans, fallback, placement and decision regret\\
+\bottomrule
+\end{tabular}%
+}
+\end{table*}
+
+The distinction from QuWARP is the reuse axis. A prefix artifact can be reused until the first changed gate, but a parameter shift in the middle of a circuit changes its suffix. Independently, a shift outside a terminal observable's backward cone leaves that observable's reduced preparation unchanged even when the full circuit suffix differs. Prefix sharing and cone grouping can consequently complement one another; we do not claim to subsume QuWARP's planner or to reproduce its Qrack-based results. Our focus is narrower: selection of terminal-observable cone plans for a batch of bound expectation requests, charged with its own analysis cost and compared with the execution a user would otherwise perform.
+
+Circuit cutting~\cite{peng2020simulating,mitarai2021constructing,tang2021cutqc} reconstructs expectation values from smaller fragment executions, at the price of a number of terms that grows exponentially with the number of cuts. \textsc{LazyQC} includes exact controlled-X channel cutting based on the decompositions of qiskit-addon-cutting~\cite{qiskitqpd}, together with PyZX-verified rewrites~\cite{kissinger2019pyzx}, as optional candidate generators. Related work combines rewrites with cut search~\cite{nguyen2025zx} or reuses isomorphic subcircuits~\cite{larqucut2025}. We report these mechanisms as extensions, because our results show that they rarely pay off against dense execution at the widths where dense execution is still feasible. The main text's exact planner does not depend on approximation; the opt-in sensitivity mechanism and its conditional numerical assumptions are isolated in Appendix~\ref{app:sensitivity}.

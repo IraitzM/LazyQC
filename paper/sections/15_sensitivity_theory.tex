@@ -1,0 +1,60 @@
+\subsection{Observable-Error Bound}
+\label{sec:sensitivity-theory}
+The dense backend retains complex128 amplitudes regardless of angle precision. Parameter approximation can save work when it enables gate cancellation or reduces an observable's causal cone. Our separate sensitivity API explicitly executes shifted circuits, then selects zero-angle substitutions under per-output absolute error budgets. Ordinary planning remains exact and lazy. The following result formalizes its acceptance rule using standard parameter-shift and Taylor arguments~\cite{schuld2019gradients,lerch2026patches}; the experiments motivate and test its application but are not its proof.
+
+\begin{theorem}[Observable error under simultaneous angle changes]
+\label{thm:observable-error}
+Let $U(\theta)$ be a unitary circuit on a fixed normalized input state, with independently indexed rotation occurrences $R_{P_g}(\theta_g)=\exp(-i\theta_gP_g/2)$, where each $P_g$ is a Pauli operator. For a terminal Pauli $O_k$, define $f_k(\theta)=\operatorname{Tr}[O_kU(\theta)\rho U(\theta)^\dagger]$. Let $C_k$ be its structural backward cone in the unchanged gate topology. For any real occurrence perturbation $\delta$, set $L_k=\sum_{g\in C_k}|\delta_g|$ and $J_{kg}=\partial_g f_k(\theta)$. Then
+\begin{equation}
+ |f_k(\theta+\delta)-f_k(\theta)|
+ \leq\min\{2,L_k,|J_k\delta|+L_k^2/2\}.
+ \label{eq:ideal-sensitivity-bound}
+\end{equation}
+The coefficient $1/2$ in the quadratic remainder is asymptotically sharp over this circuit class. If $|\widehat J_{kg}-J_{kg}|\leq\eta$ inside $C_k$, $\widehat J_{kg}=0$ outside $C_k$, and each numerical endpoint has absolute error at most $\eta$, their difference is bounded by
+\begin{equation}
+ B_k=\min\{2,L_k,|\widehat J_k\delta|+\eta L_k+L_k^2/2\}+2\eta.
+ \label{eq:sensitivity-bound}
+\end{equation}
+\end{theorem}
+
+The proof and sharpness example are in the Appendix. Occurrences sharing a symbolic parameter count separately. Their derivatives sum by the chain rule; the appropriate shift calculation changes only one occurrence at a time:
+\begin{equation}
+ J_{kg}=\tfrac12[f_k(\theta+\tfrac\pi2 e_g)-f_k(\theta-\tfrac\pi2 e_g)].
+\end{equation}
+Two expectation estimates with error at most $\eta$ give derivative error at most $\eta$. The implemented allowance is assumed rather than established by interval arithmetic, and bound computations are not rounded outward. Equation~\eqref{eq:sensitivity-bound} is therefore a conditional mathematical guarantee, not a floating-point certificate. An exactly unchanged relevant circuit has zero approximation change; comparing two separately computed endpoints can still incur numerical error.
+
+\begin{corollary}[Sufficient perturbation radius]
+\label{cor:radius}
+For a chosen occurrence direction $v$ and $\delta=t v$, let
+$\ell_k=\sum_{g\in C_k}|v_g|$,
+$a_k=|\widehat J_kv|+\eta\ell_k$, and
+$e_k=\epsilon_k-2\eta>0$.
+If $\ell_k>0$, a sufficient condition for output error at most $\epsilon_k$ is
+\begin{equation}
+ |t|\leq\frac{2e_k}{a_k+\sqrt{a_k^2+2\ell_k^2e_k}}.
+ \label{eq:safe-radius}
+\end{equation}
+Taking the minimum radius over the requested outputs satisfies every budget. Outputs with $\ell_k=0$ impose no approximation restriction.
+\end{corollary}
+
+This follows by solving $a_k|t|+\ell_k^2t^2/2\leq e_k$. It is a sufficient radius, not the largest admissible one, since the other terms of Eq.~\eqref{eq:sensitivity-bound} can be tighter. In exact arithmetic, if $m_k$ affected occurrences each change by at most $d$, the uniform rule $m_kd\leq\epsilon_k$ always suffices. At a point where all those derivatives vanish, the stronger sufficient rule is $m_kd\leq\sqrt{2\epsilon_k}$. Thus zero gradient permits a larger tolerance but does not justify unlimited pruning. For a nearest rounding grid of spacing $h$, substitute $d=h/2$. These bounds have no explicit $2^n$ factor, but the number of relevant occurrences can grow with the circuit.
+
+\begin{corollary}[Resource reduction after admissible bridge removal]
+\label{cor:resource-reduction}
+Suppose an admissible perturbation followed by exact rewrites separates a product-zero-input circuit into components of widths $b_j\leq b$, and every requested observable is supported within one component. Simulating each needed component once suffices. If it has $G_j$ fixed-arity gates and $K_j$ requested Pauli outputs, a dense evaluation requires
+\begin{equation}
+ O\!\left(\sum_j (G_j+1+K_jb_j)2^{b_j}\right)
+ \label{eq:reduced-work}
+\end{equation}
+arithmetic operations. Its largest state payload is at most $16\,2^b$ bytes, or a reduction of at least $2^{W-b}$ relative to a dense plan whose largest state has width $W\geq b$.
+\end{corollary}
+
+Factorization of the input and all remaining gates proves the corollary. It concerns the evaluation phase; profiling, search, resident memory and competing tensor-network methods are outside this operation/payload statement. With polynomial gate/output counts and $b=O(\log n)$, the reduced evaluation is polynomial, but this does not establish polynomial cost for obtaining its sensitivity profile. The measured $\mathrm{CX}\,R_Z(\theta)\,\mathrm{CX}$ bridges satisfy the structural hypothesis when all intercomponent bridges are set to zero and cancelled. Small angles without this separation need not reduce width.
+
+\subsubsection{Planning and setup repayment}
+The prototype tests at most 64 zeroed subsets, applies Eq.~\eqref{eq:sensitivity-bound} to every output, and retains the exact plan on execution-cost ties. Existing execution scores rank admissible variants; there is no global optimality claim. Profiling and search are recorded separately. For a specified execution policy, let $H_e,H_a$ be exact and approximate setup costs, including profiling in $H_a$, and let $T_e,T_a$ be constant per-collection costs. Approximation improves lifetime precisely when
+\begin{equation}
+ R(T_e-T_a)>H_a-H_e.
+ \label{eq:reuse-condition}
+\end{equation}
+For positive saving $s=T_e-T_a$ and nonnegative added setup $\Delta H$, the first improving integer horizon is $\lfloor\Delta H/s\rfloor+1$. With variable timings, replace $Rs$ by the cumulative measured savings. This accounting identity is a decision rule, not a hardware speedup theorem. The current implementation reports the required terms; automatic joint selection of profiling effort, reuse horizon and worker count remains open.

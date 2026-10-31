@@ -1,0 +1,13 @@
+\begin{tabular}{rlrrr}
+\toprule
+$n$ & Method & Total (s) & Step (ms) & Final loss\\
+\midrule
+16 & Aer GPU, shift rule & 9.14 & 913 & 0.0841\\
+16 & LazyQC, shift rule & 1.21 & 124 & 0.0841\\
+16 & Lightning GPU, adjoint & 0.24 & 24 & 0.0841\\
+20 & LazyQC, shift rule & 1.80 & 179 & 0.0760\\
+20 & Lightning GPU, adjoint & 1.37 & 137 & 0.0760\\
+24 & LazyQC, shift rule & 2.46 & 246 & 0.0909\\
+24 & Lightning GPU, adjoint & 33.55 & 3355 & 0.0909\\
+\bottomrule
+\end{tabular}

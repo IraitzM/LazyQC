@@ -1,0 +1,65 @@
+\subsection{Two-policy selection with expected reuse}
+Before the QML study, we evaluated whether historical timing can decide between independent request optimization followed by deduplication (B3) and joint group, rewrite and cut search (B5) for a declared number of collections $R\in\{1,2,4,\dots,512\}$. For each policy $p$, a reconstructed lifetime $\widetilde L_p(R)=\operatorname{median}(H_p)+R\operatorname{median}(T^{\mathrm{warm}}_p)$ combines cold planning with warm calls, and regret is measured against the cheaper of the two policies. Rules were trained on some timing repetitions and evaluated on others, separately for each workload, so the study holds out repetitions and not circuit families. Table~\ref{tab:selection_quality} shows that a history threshold makes no error on the 20 path and star decisions and four errors on 30 further decisions, while running both searches and then choosing raises the mean regret to 122\,ms, above always choosing the joint search. Obtaining an alternative can cost more than the decision saves, which is the same lesson the analysis budget encodes.
+
+\begin{table}[!t]
+\caption{Selection Against the Two-Policy Lifetime Reference. Mean Regret in Milliseconds; Training and Test Repetitions Are Separate.}
+\label{tab:selection_quality}
+\centering
+\setlength{\tabcolsep}{2pt}
+\footnotesize
+\begin{tabular}{lrrrr}
+\toprule
+ & \multicolumn{2}{c}{Path/star: 20 decisions} & \multicolumn{2}{c}{Additional: 30 decisions}\\
+\cmidrule(lr){2-3}\cmidrule(lr){4-5}
+Rule & Errors & Regret & Errors & Regret\\
+\midrule
+Always independent & 6/20 & 76.03 & 5/30 & 21.76\\
+Always joint & 14/20 & 89.33 & 25/30 & 101.09\\
+History threshold & 0/20 & 0.00 & 4/30 & 16.14\\
+History + execution score & 1/20 & 4.88 & 3/30 & 13.82\\
+Both searches, then select & 14/20 & 122.33 & n/a & n/a\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Joint grouping and exact cutting}
+The historical cutting manifest contains 11 small workloads, including four-qubit QAOA path and star instances, overlapping and disjoint batches, and dense controls. B3 chooses rewrites and cuts independently per request before deduplication, while B5 chooses them jointly; both respect each case's fragment limit. Joint selection reduces unique fragment experiments from 148 to 67 on the path and from 76 to 58 on the star (Table~\ref{tab:cutting_results}), but cold joint planning loses on every feasible case, with B3/B5 total-time ratios of 0.21 to 0.59. Repeated collections of the same bound batch eventually repay the search: over 512 calls the path breaks even after 18 to 21 calls and reaches $1.59\times$ ($\approx1.45\times$ with calibration charged), while the overlapping batch repays late and the star and local-Pauli controls never do (Table~\ref{tab:cache_results}). None of these comparisons includes dense execution, which on such small circuits is faster than any cut plan: on a six-qubit QAOA path, ten dense collections took 1.06\,ms against 389\,ms for the joint cut plan.
+
+\begin{table}[!t]
+\caption{Historical Cutting Results: Unique Experiments and Warm-Cache B3/B5 Speedups (Seven Paired Trials).}
+\label{tab:cutting_results}
+\centering
+\setlength{\tabcolsep}{3pt}
+\footnotesize
+\begin{tabular}{lrrcc}
+\toprule
+Workload & B3 & B5 & Reduction & Speedup [95\% CI]\\
+\midrule
+QAOA path & 148 & 67 & 54.7\% & $1.26\times$ [1.08--1.45]\\
+QAOA star & 76 & 58 & 23.7\% & $1.74\times$ [1.24--2.51]\\
+Overlapping batch & 8 & 1 & 87.5\% & $1.36\times$ [1.21--1.57]\\
+Disjoint cones & 8 & 8 & 0.0\% & $1.00\times$ [0.91--1.11]\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[!t]
+\caption{Amortized Joint-Planning Speedups and Break-Even Calls over 512 Collections (Three Sessions).}
+\label{tab:cache_results}
+\centering
+\setlength{\tabcolsep}{3pt}
+\footnotesize
+\begin{tabular}{lccc}
+\toprule
+Workload & Speedup & Break-even & With calibration\\
+\midrule
+QAOA path & $1.59$--$1.60\times$ & 18--21 & $\approx1.45\times$\\
+Overlapping batch & $1.14$--$1.29\times$ & 220--353 & $1.04$--$1.08\times$\\
+QAOA star & $0.95$--$0.98\times$ & not reached & $0.96$--$0.99\times$\\
+Local Pauli batch & $0.64$--$0.68\times$ & not reached & $0.73$--$0.77\times$\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Earlier structural replay}
+An earlier replay study reused group and cut choices across eight random bindings of the QAOA path and star circuits. Replay planning took 4.25 to 9.90\,ms against 29.80 to 249.80\,ms for fresh planning, with and without ZX rewrites, and every replayed output matched an independent NumPy reference within $5\times10^{-16}$. The stored summaries are fifth order statistics of eight bindings rather than conventional medians, and the template acquisition was not charged, so we only use these values as motivation for the charged QML replay study of Section~\ref{sec:rq3}.
