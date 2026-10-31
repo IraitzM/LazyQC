@@ -55,6 +55,11 @@ class QulacsBackend:
             qs = [mapping[q] for q in gate.qubits]
             if gate.name == "CX":
                 circuit.add_CNOT_gate(*qs)
+            elif gate.name == "CZ":
+                circuit.add_CZ_gate(*qs)
+            elif gate.name == "RZZ":
+                # Same sign convention as the single-qubit rotations above.
+                circuit.add_multi_Pauli_rotation_gate(qs, [3, 3], -gate.angle)
             elif gate.name in ROTATIONS:
                 # Qulacs uses exp(+i theta P/2); the public IR uses the opposite sign.
                 getattr(circuit, f"add_{gate.name}_gate")(qs[0], -gate.angle)

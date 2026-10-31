@@ -45,10 +45,12 @@ _PL_TO_IR = {
     "RY": "RY",
     "RZ": "RZ",
     "CNOT": "CX",
+    "CZ": "CZ",
+    "IsingZZ": "RZZ",
 }
 _IGNORED = frozenset({"Identity", "GlobalPhase"})
 _SUPPORTED = frozenset(_PL_TO_IR) | _IGNORED
-_ROTATIONS = frozenset({"RX", "RY", "RZ"})
+_ROTATIONS = frozenset({"RX", "RY", "RZ", "IsingZZ"})
 
 
 def _supports_operation(op) -> bool:

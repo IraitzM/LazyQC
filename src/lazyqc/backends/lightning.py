@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from math import isfinite
 
 from ..instruments import Projector
-from ..ir import ROTATIONS, Parameter
+from ..ir import GATES, ROTATIONS, Parameter
 from .qulacs import Counters
 
 
@@ -35,7 +35,7 @@ class LightningBackend:
         """Return the gates, state convention, and numerical precision supported."""
         return {
             "name": self.device,
-            "gates": ("H", "X", "Y", "Z", "RX", "RY", "RZ", "CX"),
+            "gates": tuple(sorted(GATES)),
             "initial_state": "zero",
             "evaluation": "exact_pauli",
             "precision": "complex128",
@@ -64,6 +64,11 @@ class LightningBackend:
             wires = [mapping[q] for q in gate.qubits]
             if gate.name == "CX":
                 operations.append(qml.CNOT(wires=wires))
+            elif gate.name == "CZ":
+                operations.append(qml.CZ(wires=wires))
+            elif gate.name == "RZZ":
+                # IsingZZ(phi) = exp(-i phi Z Z / 2), the public RZZ convention.
+                operations.append(qml.IsingZZ(gate.angle, wires=wires))
             elif gate.name in ROTATIONS:
                 # PennyLane shares the public convention R_P(theta) = exp(-i theta P / 2).
                 operations.append(getattr(qml, gate.name)(gate.angle, wires=wires[0]))

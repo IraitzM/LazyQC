@@ -22,14 +22,14 @@ def test_bell_translates_and_collects():
     assert values[1] == pytest.approx(1.0)
 
 
-def test_rzz_unrolls_to_basis():
+def test_rzz_stays_native():
     from qiskit import QuantumCircuit
 
     circuit = QuantumCircuit(2)
     circuit.h(0)
     circuit.rzz(0.5, 0, 1)
     imported = from_qiskit(circuit, [{0: "Z", 1: "Z"}])
-    assert set(imported.translated_ops) <= {"H", "CX", "RZ"}
+    assert imported.translated_ops == ("H", "RZZ")
     assert "rzz" in imported.source_ops
     values = plan_all(imported.requests).collect().values
     # RZZ(0.5) on |+0> balances the ZZ parity subspaces exactly.

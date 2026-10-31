@@ -77,7 +77,7 @@ def local_simplify(operations):
 def to_pyzx(qubits, operations):
     """Convert IR operations to a PyZX circuit, requiring the optional dependency."""
     from pyzx import Circuit
-    from pyzx.circuit.gates import CNOT, HAD, XPhase, ZPhase
+    from pyzx.circuit.gates import CNOT, CZ, HAD, XPhase, ZPhase
 
     circuit = Circuit(qubits)
     for gate in operations:
@@ -85,6 +85,15 @@ def to_pyzx(qubits, operations):
         if gate.name == "H":
             circuit.add_gate(HAD(q))
         elif gate.name == "CX":
+            circuit.add_gate(CNOT(*gate.qubits))
+        elif gate.name == "CZ":
+            circuit.add_gate(CZ(*gate.qubits))
+        elif gate.name == "RZZ":
+            if abs(gate.angle) > 8 * pi:
+                raise ValueError("rotation magnitude exceeds supported 8*pi conversion bound")
+            # RZZ(theta) = CX(a, b) RZ_b(theta) CX(a, b), exactly.
+            circuit.add_gate(CNOT(*gate.qubits))
+            circuit.add_gate(ZPhase(gate.qubits[1], Fraction(gate.angle) / Fraction(pi)))
             circuit.add_gate(CNOT(*gate.qubits))
         elif gate.name in ("X", "Y", "Z"):
             if gate.name in ("Y", "Z"):
