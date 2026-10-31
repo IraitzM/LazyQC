@@ -59,6 +59,9 @@ notebooks = [
     "ipykernel>=7.3.0",
     "matplotlib>=3.8",
 ]
+remote = [
+    "skypilot[lambda]>=0.14.0,<0.15",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
