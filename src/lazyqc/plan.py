@@ -90,6 +90,7 @@ class Plan:
     rewrite_records: tuple = ()
     optimizer_id: str | None = None
     zx_options: object | None = None
+    analysis_budget: tuple = ()
 
     def explain(self) -> dict:
         """Return a serializable explanation of selection, limits, and alternatives."""
@@ -114,12 +115,15 @@ class Plan:
             "profile_id": self.cost_model.profile_id if self.cost_model else None,
             "prediction_scope": "execution only; excludes construction, planning and calibration",
             "selection_reason": (
-                "lowest predicted execution time, then fewest tasks"
+                "analysis skipped: dense execution predicted below cone analysis cost"
+                if dict(self.analysis_budget).get("skipped")
+                else "lowest predicted execution time, then fewest tasks"
                 if self.cost_model_status == "calibrated"
                 else "lowest work score, then fewest tasks"
             )
             if self.requested_strategy == "auto" or self.requested_optimization != "none"
             else "explicitly requested strategy",
+            "analysis_budget": dict(self.analysis_budget) or None,
             "memory_scope": "raw state payload only; not process RSS",
             "max_state_qubits": self.selected.max_width,
             "estimated_state_bytes": self.selected.state_bytes,
@@ -154,8 +158,11 @@ class Plan:
             ],
         }
 
-    def collect(self, *, backend=None):
-        """Execute the selected plan and return its values and statistics."""
+    def collect(self, *, backend=None, wide_backend=None, wide_from=None):
+        """Execute the selected plan and return its values and statistics.
+
+        Tasks of at least `wide_from` qubits run on `wide_backend` when given.
+        """
         from .executor import execute
 
-        return execute(self, backend=backend)
+        return execute(self, backend=backend, wide_backend=wide_backend, wide_from=wide_from)
