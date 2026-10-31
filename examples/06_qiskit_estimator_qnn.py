@@ -9,10 +9,8 @@ each output depends on a narrow causal cone that LazyQC shares across outputs an
 ``--observables parity`` reads ``Z...Z`` on every qubit. Timings depend on the ansatz, the
 observables and the host, so measure your own workload.
 
-Pin the native threads before running, as the benchmarks do. Qulacs' default OpenMP team is
-much slower than one thread on small states, and it slows LazyQC's side of the comparison:
-
-    export OMP_NUM_THREADS=1 QULACS_NUM_THREADS=1
+LazyQC limits Qulacs' OpenMP team to the task widths it runs (``native_threads="auto"``), so no
+environment variables are needed. Aer keeps its own threading.
 
 Run with the optional packages added on the fly:
 
