@@ -12,7 +12,7 @@
   <a href="https://github.com/IraitzM/LazyQC/stargazers"><img src="https://img.shields.io/github/stars/IraitzM/LazyQC?style=social" alt="GitHub stars"></a>
 </p>
 
-LazyQC is an open-source Python framework for lazy, observable-driven quantum simulation. You describe programs and request expectation values first; LazyQC plans the whole batch (observable cones, shared preparations, optional ZX rewrites and exact CX cuts under memory limits) and only runs the native [Qulacs](https://github.com/qulacs/qulacs) simulation when you call `collect()`.
+LazyQC is a Python framework for lazy, observable-driven quantum simulation (v0.2.0). You describe programs and request expectation values first; LazyQC plans the batch (observable cones, shared preparations, ZX rewrites, and exact CX cuts under memory limits) and only runs the native [Qulacs](https://github.com/qulacs/qulacs) simulation when you call `collect()`.
 
 ## Installation
 
@@ -23,6 +23,57 @@ uv add lazyqc
 ```
 
 Optional extras: `zx` (PyZX rewrites), `cutting` (exact CX cuts, Qiskit frontend), `tensor` and `mqt` (alternative backends for benchmarking).
+
+### PennyLane device
+
+With `pip install "lazyqc[pennylane]"`, any QNode can run on LazyQC:
+
+```python
+import pennylane as qml
+
+dev = qml.device("lazyqc.qubit", wires=4)
+
+@qml.qnode(dev, diff_method="best")  # device derivatives skip parameters outside every cone
+def f(w):
+    qml.RX(w[0], wires=0)
+    qml.CNOT(wires=[0, 1])
+    return qml.expval(qml.Z(1))
+```
+
+`dev.last_stats["skipped_structural_zeros"]` reports shifted terms skipped after a gradient call.
+
+## Gradients with PennyLane
+
+For bound symbolic parameters, `adjoint_gradient` computes a weighted scalar-loss
+gradient with Qulacs backpropagation inside each observable's causal cone. Observables
+with the same cone share a backpropagation:
+
+```python
+import pennylane as qml
+from lazyqc import Parameter, Program, adjoint_gradient
+
+dev = qml.device("lazyqc.qubit", wires=2)
+
+@qml.qnode(dev, diff_method="best")  # device derivatives skip parameters outside every cone
+def circuit(w):
+    qml.RX(w[0], wires=0)
+    qml.CNOT(wires=[0, 1])
+    return qml.expval(qml.Z(0))
+```
+
+Alternatively, using the native LazyQC gradient function:
+
+```python
+from lazyqc import Parameter, Program, adjoint_gradient
+
+theta = Parameter("theta")
+program = Program(2).ry(0, theta).cx(0, 1).rz(1, theta).bind(theta=0.4)
+gradient = adjoint_gradient(program, [{0: "Z"}, {1: "X"}], [0.7, -0.2])
+print(gradient["theta"])
+```
+
+`profile_sensitivity(..., method="adjoint")` computes occurrence-wise derivatives;
+`method="auto"` selects shifts or adjoint independently for each observable cone.
 
 ## Quick start
 
@@ -39,6 +90,21 @@ requests = [
 plan = plan_all(requests, strategy="auto")  # classical planning only
 print(plan.explain())
 print(plan.collect().values)  # native simulation happens here
+```
+
+### Weighted sums of Pauli terms
+
+A Hamiltonian is a list of `(coefficient, term)` pairs. LazyQC plans the terms
+together, so terms whose cones coincide share one simulation, and returns the
+weighted sum as a single value. Coefficients are real; `Pauli()` is the identity.
+
+```python
+hamiltonian = program.expectation([
+    (0.5, {0: "Z"}),
+    (-1.0, {0: "X", 1: "X"}),
+    (2.0, {}),  # identity offset
+])
+print(plan_all([hamiltonian]).collect().values)  # one value for the whole sum
 ```
 
 ## Gradients
@@ -80,8 +146,7 @@ If you use LazyQC in your research, please cite the accompanying paper (see also
 @article{montalban2026lazyqc,
   title   = {LazyQC: Lazy Planning for Batched Quantum Result Queries},
   author  = {Montalb{\'a}n, Iraitz},
-  journal = {TODO},
   year    = {2026},
-  doi     = {TODO}
+  note    = {arXiv preprint; journal and DOI to be added upon publication}
 }
 ```

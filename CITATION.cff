@@ -3,7 +3,7 @@ message: "If you use LazyQC in your research, please cite the paper below."
 title: "LazyQC"
 abstract: "Lazy, observable-driven quantum simulation and batch planning with Qulacs."
 type: software
-version: 0.1.0
+version: 0.2.0
 license: Apache-2.0
 repository-code: "https://github.com/IraitzM/LazyQC"
 authors:
@@ -18,7 +18,7 @@ keywords:
   - ZX-calculus
 preferred-citation:
   type: article
-  title: "LazyQC: Lazy Planning for Batched Quantum Result Queries"
+  title: "LazyQC: Avoiding Simulation Work in Batched Quantum Expectation Workloads"
   authors:
     - family-names: "Montalbán"
       given-names: "Iraitz"

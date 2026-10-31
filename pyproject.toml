@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "lazyqc"
-version = "0.1.0"
+version = "0.2.0"
 description = "Lazy, observable-driven quantum simulation with Qulacs"
 readme = "README.md"
 license = "Apache-2.0"
@@ -49,6 +49,13 @@ mqt = [
     "mqt.bench>=2.3,<2.4",
 ]
 
+pennylane = [
+    "pennylane>=0.43,<1",
+]
+
+[project.entry-points."pennylane.plugins"]
+"lazyqc.qubit" = "lazyqc.frontends.pennylane:LazyQubit"
+
 [dependency-groups]
 dev = [
     "commitizen>=4.19.2",
@@ -72,3 +79,11 @@ select = ["E", "F", "I"]
 
 [tool.hatch.build.targets.sdist]
 include = ["/src/lazyqc", "/README.md", "/LICENSE", "/CITATION.cff"]
+
+[tool.commitizen]
+name = "cz_conventional_commits"
+version_provider = "uv"
+version_files = ["CITATION.cff:^version:"]
+tag_format = "v$version"
+update_changelog_on_bump = true
+changelog_file = "CHANGELOG.md"
