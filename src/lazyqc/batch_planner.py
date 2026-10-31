@@ -153,17 +153,28 @@ def plan_batch(
             variants.append(("zx", zx))
     if cutting.search == "fixed":
         variants = variants[-1:]  # Explicit fixed rewrite-then-cut baseline.
-    # Angle-erased topology key: downstream of rewrite, planning is
-    # value-independent, so this identifies reusable decisions across bindings.
+    # Structural hints may cross angle changes only if the equality partition
+    # of concrete preparations is unchanged. Record both erased shape and the
+    # canonical class of equal bound operations for each request.
     topology = []
     for name, batch in variants:
-        program_shapes, order, outputs = {}, [], []
+        program_shapes, bound_programs, order, outputs = {}, {}, [], []
         for r in batch:
-            shape = _erased_program_key(r.program.n_qubits, resolve(r.program))
+            operations = resolve(r.program)
+            shape = _erased_program_key(r.program.n_qubits, operations)
             if shape not in program_shapes:
                 program_shapes[shape] = len(order)
                 order.append(shape)
-            outputs.append((program_shapes[shape], tuple(r.observable.factors)))
+            bound_key = (r.program.n_qubits, operations)
+            if bound_key not in bound_programs:
+                bound_programs[bound_key] = len(bound_programs)
+            outputs.append(
+                (
+                    program_shapes[shape],
+                    bound_programs[bound_key],
+                    tuple(r.observable.factors),
+                )
+            )
         topology.append((name, tuple(order), tuple(outputs)))
     topology_key = _freeze(tuple(topology))
     # Accept structural hints only on exact topology/options match and for the
@@ -287,6 +298,10 @@ def plan_batch(
             analysis_stats["candidate_hits"] += 1
         return replace(priced[groups], strategy=label)
 
+    def complete_candidate(plan):
+        """Whether a candidate reconstructs every nonconstant request."""
+        return {r.output for r in plan.reconstruction} == set(active)
+
     def best_group(choices):
         """Return the least costly feasible grouping from a choice sequence."""
         ranked = []
@@ -365,7 +380,10 @@ def plan_batch(
                     if not choices:
                         raise _HintStale(f"no compiled choice for {element}")
                     groups.append(choices[0])
-                hint_groups.append(candidate(groups, label))
+                plan = candidate(groups, label)
+                if not complete_candidate(plan):
+                    raise _HintStale("template does not cover every active output")
+                hint_groups.append(plan)
             complete.extend(hint_groups)
             analysis_stats["structural_hit"] = 1
         except (KeyError, TypeError, ValueError, _HintStale) as exc:
@@ -383,7 +401,9 @@ def plan_batch(
             fixed.append(selected)
         if fixed is not None:
             try:
-                complete.append(candidate(fixed, "fixed-fallback"))
+                plan = candidate(fixed, "fixed-fallback")
+                if complete_candidate(plan):
+                    complete.append(plan)
             except CutLimitError as exc:
                 rejections.append(str(exc))
     # Independent search then deduplication is a complete retained baseline. For
@@ -445,15 +465,20 @@ def plan_batch(
         analysis_stats["disjoint_fastpath"] = 1
         uncut = replace(effective, max_cuts=0)
         for vi, (_, batch) in enumerate(variants):
+            unions = []
             for _, indices in variant_cone_groups[vi]:
                 try:
                     union = [
                         g for g in group_choices(vi, tuple(indices), uncut) if not g.cut_indices
                     ]
                     if union:
-                        complete.append(candidate((union[0],), "joint-union"))
+                        unions.append(union[0])
                 except CutLimitError as exc:
                     rejections.append(f"disjoint fastpath skipped union: {exc}")
+            if unions:
+                plan = candidate(tuple(unions), "joint-union")
+                if complete_candidate(plan):
+                    complete.append(plan)
     economic_state_cap = cutting.max_search_states
     # Cost-model v2 input: split incumbent construction from marginal beam
     # exploration. Marginal search cost is planning_ns minus this timestamp.
@@ -514,7 +539,7 @@ def plan_batch(
                 try:
                     scored = candidate(groups, "joint")
                     ranked.append((scored.score, groups))
-                    if {i for g in groups for i in g.outputs} == set(active):
+                    if complete_candidate(scored):
                         complete.append(scored)
                 except CutLimitError as exc:
                     rejections.append(str(exc))
@@ -524,6 +549,7 @@ def plan_batch(
                 groups
                 for _, groups in sorted(ranked, key=lambda pair: pair[0])[: cutting.beam_width]
             ]
+    complete = [plan for plan in complete if complete_candidate(plan)]
     if not complete:
         detail = "; ".join(dict.fromkeys(rejections))
         raise NoFeasiblePlan(

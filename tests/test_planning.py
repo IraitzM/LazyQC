@@ -105,7 +105,7 @@ def test_forced_full_baseline_does_not_run_cone_optimizer(monkeypatch):
     def forbidden(*args, **kwargs):
         pytest.fail("The full-state baseline must not pay for cone optimization")
 
-    monkeypatch.setattr(planner, "causal_cone", forbidden)
+    monkeypatch.setattr(planner, "cone_indices", forbidden)
     plan = plan_all(initial_requests(), strategy="full")
     assert len(plan.alternatives) == 1
     assert plan.collect().stats.evolutions == 1

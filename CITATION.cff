@@ -18,7 +18,7 @@ keywords:
   - ZX-calculus
 preferred-citation:
   type: article
-  title: "LazyQC: Lazy Planning for Batched Quantum Result Queries"
+  title: "LazyQC: Avoiding Simulation Work in Batched Quantum Expectation Workloads"
   authors:
     - family-names: "Montalbán"
       given-names: "Iraitz"

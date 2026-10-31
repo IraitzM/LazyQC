@@ -6,11 +6,18 @@ from time import perf_counter_ns
 from .cache import PlanningCache
 from .cost import CalibratedCostModel
 from .ir import Request
-from .passes import causal_cone
+from .passes import cone_indices
 from .plan import Candidate, Plan, Task
 from .rewrites import ZXOptions, optimizer_identity, rewrite_programs
 
 STRATEGIES = ("full", "separate", "grouped", "auto")
+ANALYSES = ("budgeted", "always")
+# Host defaults fitted by benchmarks/calibrate_analysis_budget.py: dense serial
+# execution (per program, per gate, per amplitude-gate, per amplitude-output)
+# and cone analysis (per call, per request gate), in nanoseconds. They only
+# decide when dense execution is too cheap for analysis to matter.
+DENSE_NS = (40_700.0, 1_200.0, 1.0, 4.9)
+ANALYSIS_NS = (5_200.0, 220.0)
 
 
 class NoFeasiblePlan(ValueError):
@@ -37,33 +44,57 @@ class _Analysis:
 
 def _analyze(requests, strategy):
     """Build unoptimized full, separate, or causal-cone candidates."""
-    full_groups, cone_groups = {}, {}
+    # Cone membership depends only on gate wires, so it is computed once per
+    # topology and observable support. Grouping keys pair an interned circuit
+    # shape with concrete angles: equal keys mean equal retained circuits.
+    full_slots, full_groups, cone_groups = {}, [], {}
     separate, constants = [], []
-    resolved = {}
+    programs, layouts, cones, shapes = {}, {}, {}, {}
     for index, request in enumerate(requests):
         program = request.program
-        if program not in resolved:
-            resolved[program] = program.resolved_operations()
-        operations = resolved[program]
+        known = programs.get(id(program))
+        if known is None:
+            operations = program.resolved_operations()
+            shape_ops = tuple((g.name, g.qubits) for g in operations)
+            layout = layouts.setdefault((program.n_qubits, shape_ops), len(layouts))
+            angles = tuple(g.angle for g in operations)
+            known = programs[id(program)] = [operations, shape_ops, layout, angles, None]
+        operations, shape_ops, layout, angles, slot = known
         if not request.observable.factors:
             constants.append((index, 1.0))
             continue
         output = (index, request.observable)
         if strategy in ("full", "auto"):
-            full_key = (tuple(range(program.n_qubits)), operations)
-            full_groups.setdefault(full_key, []).append(output)
+            if slot is None:
+                # Full groups open at a program's first nonconstant output.
+                slot = known[4] = full_slots.setdefault((layout, angles), len(full_slots))
+                if slot == len(full_groups):
+                    full_groups.append((tuple(range(program.n_qubits)), operations, []))
+            full_groups[slot][2].append(output)
         if strategy != "full":
-            cone_key = causal_cone(operations, request.observable)
+            support = tuple(q for q, _ in request.observable.factors)
+            cone = cones.get((layout, support))
+            if cone is None:
+                wires, retained = cone_indices(tuple(q for _, q in shape_ops), support)
+                shape = (wires, tuple(shape_ops[i] for i in retained))
+                cone = cones[(layout, support)] = (
+                    wires,
+                    retained,
+                    shapes.setdefault(shape, len(shapes)),
+                )
+            wires, retained, shape = cone
+            key = (shape, tuple(angles[i] for i in retained))
+            group = cone_groups.get(key)
+            if group is None:
+                group = cone_groups[key] = (wires, tuple(operations[i] for i in retained), [])
             if strategy in ("grouped", "auto"):
-                cone_groups.setdefault(cone_key, []).append(output)
+                group[2].append(output)
             if strategy in ("separate", "auto"):
-                separate.append(Task(*cone_key, (output,)))
+                separate.append(Task(group[0], group[1], (output,)))
 
     def grouped_tasks(groups):
         """Convert grouped wire and gate descriptions into immutable tasks."""
-        return tuple(
-            Task(wires, gates, tuple(outputs)) for (wires, gates), outputs in groups.items()
-        )
+        return tuple(Task(wires, gates, tuple(outputs)) for wires, gates, outputs in groups)
 
     candidates = []
     if strategy in ("full", "auto"):
@@ -71,8 +102,40 @@ def _analyze(requests, strategy):
     if strategy in ("separate", "auto"):
         candidates.append(Candidate("separate", tuple(separate)))
     if strategy in ("grouped", "auto"):
-        candidates.append(Candidate("grouped", grouped_tasks(cone_groups)))
+        candidates.append(Candidate("grouped", grouped_tasks(cone_groups.values())))
     return _Analysis(tuple(candidates), tuple(constants))
+
+
+def _analysis_budget(requests, max_state_qubits, max_state_bytes):
+    """Predict whether cone analysis can repay itself against dense execution.
+
+    Analysis can save at most the dense execution it replaces. When a feasible
+    dense plan is predicted to cost less than analysing the requests, no cone
+    plan can repay the analysis, so auto keeps the dense plan.
+    """
+    programs, request_gates = {}, 0
+    for request in requests:
+        program = request.program
+        entry = programs.get(id(program))
+        if entry is None:
+            entry = programs[id(program)] = [program.n_qubits, len(program.operations), 0]
+        if request.observable.factors:
+            entry[2] += 1
+            request_gates += entry[1]
+    widest = max((n for n, _, _ in programs.values()), default=0)
+    if widest > max_state_qubits or 16 * (1 << widest) > max_state_bytes:
+        return None
+    base, per_gate, per_amplitude_gate, per_amplitude_output = DENSE_NS
+    dense = sum(
+        base + per_gate * gates + (per_amplitude_gate * gates + per_amplitude_output * k) * (1 << n)
+        for n, gates, k in programs.values()
+    )
+    analysis = ANALYSIS_NS[0] + ANALYSIS_NS[1] * request_gates
+    return {
+        "predicted_dense_ns": round(dense),
+        "predicted_analysis_ns": round(analysis),
+        "skipped": analysis >= dense,
+    }
 
 
 def _analyze_optimized(requests, strategy, optimization, options):
@@ -189,12 +252,16 @@ def plan_all(
     workers=1,
     total_state_bytes=None,
     select=None,
+    analysis="budgeted",
 ) -> Plan:
     """Plan requests under strategy, resource, cache, and optimization constraints.
 
     Args:
         requests: Iterable of expectation `Request` objects.
         strategy: One of ``full``, ``separate``, ``grouped``, or ``auto``.
+        analysis: ``budgeted`` lets uncached heuristic ``auto`` planning keep a
+            feasible dense plan without cone analysis when dense execution is
+            predicted to cost less than the analysis; ``always`` analyses.
         max_state_qubits: Maximum width of an executable state vector.
         max_state_bytes: Maximum raw state payload for one experiment.
         cost_model: Optional calibrated execution cost model.
@@ -259,12 +326,25 @@ def plan_all(
         cost_model.validate_environment()
     if strategy not in STRATEGIES:
         raise ValueError(f"Unknown strategy {strategy!r}; choose from {STRATEGIES}")
+    if analysis not in ANALYSES:
+        raise ValueError(f"Unknown analysis {analysis!r}; choose from {ANALYSES}")
     validate_limits(workers, max_state_qubits, max_state_bytes)
     requests = tuple(requests)
     if any(not isinstance(r, Request) for r in requests):
         raise ValueError("plan_all accepts expectation Requests")
+    budget = None
+    if (
+        analysis == "budgeted"
+        and strategy == "auto"
+        and optimization == "none"
+        and cost_model is None
+        and cache is None
+    ):
+        budget = _analysis_budget(requests, max_state_qubits, max_state_bytes)
     cache_status = "disabled"
-    if cache is None:
+    if budget is not None and budget["skipped"]:
+        analysis = _analyze(requests, "full")
+    elif cache is None:
         analysis = _analyze_optimized(requests, strategy, optimization, options)
     else:
         key = (_cache_key(requests, strategy), optimization, options, identity)
@@ -332,4 +412,5 @@ def plan_all(
         analysis.rewrite_records,
         identity,
         options if optimization == "zx" else None,
+        tuple(budget.items()) if budget is not None else (),
     )

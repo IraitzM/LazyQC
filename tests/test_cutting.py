@@ -1,5 +1,6 @@
 """Exact channel reconstruction against independent dense calculations."""
 
+import math
 import random
 from dataclasses import replace
 from itertools import product
@@ -235,3 +236,94 @@ def test_structural_hints_replay_decisions():
     assert dict(fallback.analysis_stats).get("structural_miss") == 1
     plain = plan_batch(other, cutting=opts, **kwargs)
     assert len(fallback.selected.tasks) == len(plain.selected.tasks)
+
+
+def test_structural_hint_rejects_changed_bound_program_partition():
+    options = dict(
+        max_state_qubits=1,
+        max_state_bytes=32,
+        total_state_bytes=32,
+    )
+    joint = CutOptions(max_fragment_qubits=1, max_cuts=0, search="joint")
+    seed = Program(1).ry(0, 0.3)
+    seed_requests = [seed.expectation({0: "Z"}), seed.expectation({0: "X"})]
+    seed_plan = plan_batch(seed_requests, cutting=joint, **options)
+    template = seed_plan.explain()["search"]["structural_template"]
+
+    first = Program(1).ry(0, 0.4)
+    second = Program(1).ry(0, 0.8)
+    requests = [first.expectation({0: "Z"}), second.expectation({0: "X"})]
+    replay = plan_batch(
+        requests, cutting=joint, _structural_hints=template, **options
+    )
+
+    assert dict(replay.analysis_stats).get("structural_miss") == 1
+    assert replay.collect().values == pytest.approx(
+        (math.cos(0.4), math.sin(0.8)), abs=1e-12
+    )
+
+
+def test_structural_hint_rejects_changed_observable():
+    options = dict(max_state_qubits=2, max_state_bytes=64, total_state_bytes=64)
+    joint = CutOptions(max_fragment_qubits=2, max_cuts=0, search="joint")
+    program = Program(2).ry(0, 0.4).cx(0, 1)
+    seed_requests = [program.expectation({0: "Z"}), program.expectation({1: "Z"})]
+    template = plan_batch(seed_requests, cutting=joint, **options).explain()["search"][
+        "structural_template"
+    ]
+
+    changed = [program.expectation({0: "Z"}), program.expectation({0: "X"})]
+    replay = plan_batch(changed, cutting=joint, _structural_hints=template, **options)
+
+    assert dict(replay.analysis_stats).get("structural_miss") == 1
+    assert replay.collect().values == pytest.approx(dense(changed), abs=1e-10)
+
+
+def test_structural_hint_rejects_rewrite_topology_change():
+    options = dict(
+        max_state_qubits=2,
+        max_state_bytes=64,
+        total_state_bytes=64,
+        optimization="local",
+    )
+    joint = CutOptions(max_fragment_qubits=2, max_cuts=0, search="joint")
+    seed = Program(2).ry(0, 0.4).cx(0, 1).cx(0, 1)
+    requests = [seed.expectation({0: "Z"}), seed.expectation({1: "Z"})]
+    template = plan_batch(requests, cutting=joint, **options).explain()["search"][
+        "structural_template"
+    ]
+
+    changed = Program(2).ry(0, 0).cx(0, 1).cx(0, 1)
+    replay = plan_batch(
+        [changed.expectation({0: "Z"}), changed.expectation({1: "Z"})],
+        cutting=joint,
+        _structural_hints=template,
+        **options,
+    )
+
+    assert dict(replay.analysis_stats).get("structural_miss") == 1
+    assert replay.collect().values == pytest.approx((1.0, 1.0), abs=1e-10)
+
+
+def test_disjoint_fastpath_covers_mixed_bindings_duplicates_and_constants():
+    options = dict(
+        max_state_qubits=1,
+        max_state_bytes=32,
+        total_state_bytes=32,
+    )
+    joint = CutOptions(max_fragment_qubits=1, max_cuts=0, search="joint")
+    first = Program(1).ry(0, 0.4)
+    second = Program(1).ry(0, 0.8)
+    requests = [
+        first.expectation({0: "Z"}),
+        first.expectation({0: "Z"}),
+        first.expectation({}),
+        second.expectation({0: "X"}),
+    ]
+
+    plan = plan_batch(requests, cutting=joint, **options)
+
+    assert {r.output for r in plan.selected.reconstruction} == {0, 1, 3}
+    assert plan.collect().values == pytest.approx(
+        (math.cos(0.4), math.cos(0.4), 1.0, math.sin(0.8)), abs=1e-12
+    )
