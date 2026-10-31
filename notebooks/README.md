@@ -20,6 +20,11 @@ decides before anything is simulated.
 - `05_cones_cuts_rewrites.ipynb`: drawings of causal cones (and what a conservative
   scan keeps compared with Qiskit's `LightCone`), cut positions with their
   fragments, and local rewrites.
+- `06_pennylane_gradients.ipynb`: PennyLane integration with LazyQC. Demonstrates
+  `qml.device("lazyqc.qubit")` with cone-restricted parameter-shift gradients,
+  and the native `adjoint_gradient` function for weighted Pauli sums with cone-aware
+  backpropagation. Shows `profile_sensitivity(..., method="auto")` selecting shift
+  vs. adjoint per observable cone.
 
 `nbtools.py` holds the small timing, table and drawing helpers the notebooks
 share. It is a teaching aid, not part of the package. Jupyter starts each

@@ -42,6 +42,39 @@ def f(w):
 
 `dev.last_stats["skipped_structural_zeros"]` reports shifted terms skipped after a gradient call.
 
+## Gradients with PennyLane
+
+For bound symbolic parameters, `adjoint_gradient` computes a weighted scalar-loss
+gradient with Qulacs backpropagation inside each observable's causal cone. Observables
+with the same cone share a backpropagation:
+
+```python
+import pennylane as qml
+from lazyqc import Parameter, Program, adjoint_gradient
+
+dev = qml.device("lazyqc.qubit", wires=2)
+
+@qml.qnode(dev, diff_method="best")  # device derivatives skip parameters outside every cone
+def circuit(w):
+    qml.RX(w[0], wires=0)
+    qml.CNOT(wires=[0, 1])
+    return qml.expval(qml.Z(0))
+```
+
+Alternatively, using the native LazyQC gradient function:
+
+```python
+from lazyqc import Parameter, Program, adjoint_gradient
+
+theta = Parameter("theta")
+program = Program(2).ry(0, theta).cx(0, 1).rz(1, theta).bind(theta=0.4)
+gradient = adjoint_gradient(program, [{0: "Z"}, {1: "X"}], [0.7, -0.2])
+print(gradient["theta"])
+```
+
+`profile_sensitivity(..., method="adjoint")` computes occurrence-wise derivatives;
+`method="auto"` selects shifts or adjoint independently for each observable cone.
+
 ## Quick start
 
 ```python
