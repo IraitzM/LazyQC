@@ -459,15 +459,20 @@ class Program:
             result.append(VersionedOperation(gate, inputs, outputs))
         return tuple(result)
 
-    def expectation(self, observable: Pauli | Mapping[int | str, str]) -> "Request":
+    def expectation(
+        self, observable: "Pauli | PauliSum | Mapping[int | str, str]"
+    ) -> "Request | SumRequest":
         """Construct a deferred expectation request for a Pauli observable on this program.
 
         Args:
-            observable: Either a `Pauli` instance or a mapping from qubit name/index
-                to a Pauli character in {'I', 'X', 'Y', 'Z'}.
+            observable: A `Pauli`, a mapping from qubit name/index to a Pauli character in
+                {'I', 'X', 'Y', 'Z'}, a `PauliSum`, or an iterable of `(coefficient, Pauli
+                or mapping)` pairs, which is a weighted sum.
 
         Returns:
             Request: A deferred expectation request :math:`\\langle \\psi | O | \\psi \\rangle`.
+                A weighted sum returns a `SumRequest`, which `plan_all` expands into one
+                request per term and recombines.
 
         Examples:
             >>> p = Program(2).h(0).cx(0, 1)
@@ -475,8 +480,22 @@ class Program:
             >>> req.observable.factors
             ((0, 'Z'), (1, 'Z'))
         """
+        if isinstance(observable, PauliSum):
+            return SumRequest(self, observable)
         if isinstance(observable, Mapping):
             observable = Pauli(tuple((self.index(q), p) for q, p in observable.items()))
+        elif not isinstance(observable, Pauli):
+            # An iterable of (coefficient, Pauli or mapping) pairs is a weighted sum.
+            terms = tuple(
+                (
+                    c,
+                    Pauli(tuple((self.index(q), a) for q, a in t.items()))
+                    if isinstance(t, Mapping)
+                    else t,
+                )
+                for c, t in observable
+            )
+            return SumRequest(self, PauliSum(terms))
         return Request(self, observable)
 
 
@@ -510,3 +529,64 @@ class Request:
             raise ValueError("A request requires a Program and a Pauli observable")
         if any(q >= self.program.n_qubits for q, _ in self.observable.factors):
             raise ValueError("Observable qubit is outside the program")
+
+
+@dataclass(frozen=True)
+class PauliSum:
+    """A Hermitian weighted sum of Pauli products, :math:`\\sum_k c_k P_k`.
+
+    Coefficients are real: a complex coefficient would make the operator non-Hermitian
+    and its expectation complex, so it is rejected. Repeated Pauli products are merged
+    (coefficients added) and an empty `Pauli()` term is the identity offset.
+
+    Args:
+        terms: Sequence of `(coefficient, Pauli)` pairs.
+
+    Examples:
+        >>> z, xx = Pauli(((0, "Z"),)), Pauli(((0, "X"), (1, "X")))
+        >>> h = PauliSum(((0.5, z), (-1.0, xx), (2.0, Pauli())))
+        >>> len(h.terms)
+        3
+    """
+
+    terms: tuple[tuple[float, Pauli], ...]
+
+    def __post_init__(self):
+        """Validate coefficients and merge repeated Pauli products, keeping first-seen order."""
+        merged = {}
+        for term in self.terms:
+            if len(term) != 2:
+                raise ValueError("PauliSum terms must be (coefficient, Pauli) pairs")
+            coefficient, pauli = term
+            if isinstance(coefficient, bool) or not isinstance(coefficient, Real):
+                raise ValueError("PauliSum coefficients must be real numbers")
+            if not isfinite(coefficient):
+                raise ValueError("PauliSum coefficients must be finite")
+            if not isinstance(pauli, Pauli):
+                raise ValueError("PauliSum terms need Pauli products")
+            merged[pauli] = merged.get(pauli, 0.0) + float(coefficient)
+        object.__setattr__(self, "terms", tuple((c, p) for p, c in merged.items()))
+
+
+@dataclass(frozen=True)
+class SumRequest:
+    """A deferred expectation of a `PauliSum` on one program.
+
+    `plan_all` expands it into one `Request` per term, so terms whose cones coincide
+    share a task, and returns the coefficient-weighted sum, added with `math.fsum`.
+    """
+
+    program: Program
+    observable: PauliSum
+
+    def __post_init__(self):
+        """Validate the program and ensure every term fits the program."""
+        if not isinstance(self.program, Program) or not isinstance(self.observable, PauliSum):
+            raise ValueError("A sum request requires a Program and a PauliSum")
+        for _, pauli in self.observable.terms:
+            if any(q >= self.program.n_qubits for q, _ in pauli.factors):
+                raise ValueError("Observable qubit is outside the program")
+
+    def expand(self):
+        """Return the term `Request` objects in term order."""
+        return tuple(Request(self.program, pauli) for _, pauli in self.observable.terms)

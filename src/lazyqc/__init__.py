@@ -33,7 +33,7 @@ from .batch_cost import BatchCostModel, calibrate_batch
 from .cache import PlanningCache
 from .cost import CalibratedCostModel
 from .cutting import CutOptions
-from .ir import Gate, Parameter, Pauli, Program, Request
+from .ir import Gate, Parameter, Pauli, PauliSum, Program, Request, SumRequest
 from .isolation import PlanningResourceError, plan_isolated
 from .planner import NoFeasiblePlan, plan_all
 from .rewrites import ZXOptions
@@ -53,8 +53,10 @@ __all__ = [
     "Gate",
     "Parameter",
     "Pauli",
+    "PauliSum",
     "Program",
     "Request",
+    "SumRequest",
     "NoFeasiblePlan",
     "plan_all",
     "adjoint_gradient",
