@@ -107,6 +107,25 @@ hamiltonian = program.expectation([
 print(plan_all([hamiltonian]).collect().values)  # one value for the whole sum
 ```
 
+### Qiskit Estimator
+
+`lazyqc.frontends.qiskit.Estimator` implements Qiskit's `BaseEstimatorV2`, so code that goes
+through the Estimator primitive, including `EstimatorQNN`, can use LazyQC by swapping the
+estimator. Every PUB of a job is planned together, and the circuit is translated once.
+
+```python
+from qiskit.quantum_info import SparsePauliOp
+from lazyqc.frontends.qiskit import Estimator
+
+estimator = Estimator()  # Estimator(default_precision=0.01, seed=7) adds emulated noise
+result = estimator.run([(circuit, SparsePauliOp(["ZZI", "IXX"], [0.5, -1.0]), values)]).result()
+print(result[0].data.evs)
+```
+
+Values are exact; a `precision` above zero adds Gaussian noise to them as
+`StatevectorEstimator` does. Set `OMP_NUM_THREADS=1` and `QULACS_NUM_THREADS=1` for small
+states. See `examples/06_qiskit_estimator_qnn.py` for a training loop timed against Aer.
+
 ## Gradients
 
 For bound symbolic parameters, `adjoint_gradient` computes a weighted scalar-loss
