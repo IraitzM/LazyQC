@@ -49,6 +49,13 @@ mqt = [
     "mqt.bench>=2.3,<2.4",
 ]
 
+pennylane = [
+    "pennylane>=0.43,<1",
+]
+
+[project.entry-points."pennylane.plugins"]
+"lazyqc.qubit" = "lazyqc.frontends.pennylane:LazyQubit"
+
 [dependency-groups]
 dev = [
     "commitizen>=4.19.2",

@@ -24,6 +24,24 @@ uv add lazyqc
 
 Optional extras: `zx` (PyZX rewrites), `cutting` (exact CX cuts, Qiskit frontend), `tensor` and `mqt` (alternative backends for benchmarking).
 
+### PennyLane device
+
+With `pip install "lazyqc[pennylane]"`, any QNode can run on LazyQC:
+
+```python
+import pennylane as qml
+
+dev = qml.device("lazyqc.qubit", wires=4)
+
+@qml.qnode(dev, diff_method="best")  # device derivatives skip parameters outside every cone
+def f(w):
+    qml.RX(w[0], wires=0)
+    qml.CNOT(wires=[0, 1])
+    return qml.expval(qml.Z(1))
+```
+
+`dev.last_stats["skipped_structural_zeros"]` reports shifted terms skipped after a gradient call.
+
 ## Quick start
 
 ```python
