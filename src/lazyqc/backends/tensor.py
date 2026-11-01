@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from math import isfinite
 
 from ..instruments import Projector
-from ..ir import ROTATIONS, Parameter
+from ..ir import GATES, ROTATIONS, Parameter
 from .qulacs import Counters
 
 
@@ -63,7 +63,7 @@ class QuimbBackend:
         """Return the gates, state convention, and numerical precision supported."""
         return {
             "name": "quimb",
-            "gates": ("H", "X", "Y", "Z", "RX", "RY", "RZ", "CX"),
+            "gates": tuple(sorted(GATES)),
             "initial_state": "zero",
             "evaluation": "exact_pauli",
             "precision": "complex128",
@@ -138,7 +138,7 @@ class QuimbMPSBackend:
         """Return the gates, state convention, and numerical precision supported."""
         return {
             "name": "quimb-mps",
-            "gates": ("H", "X", "Y", "Z", "RX", "RY", "RZ", "CX"),
+            "gates": tuple(sorted(GATES)),
             "initial_state": "zero",
             "evaluation": "exact_pauli",
             "precision": "complex128",

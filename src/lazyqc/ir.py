@@ -26,8 +26,13 @@ from dataclasses import dataclass, replace
 from math import isfinite
 from numbers import Real
 
-GATES = frozenset({"H", "X", "Y", "Z", "RX", "RY", "RZ", "CX"})
-ROTATIONS = frozenset({"RX", "RY", "RZ"})
+GATES = frozenset({"H", "X", "Y", "Z", "RX", "RY", "RZ", "CX", "CZ", "RZZ"})
+# Gates that carry an angle. RZZ(theta) = exp(-i theta Z Z / 2) has a generator with eigenvalues
+# +-1/2, so the same two-term parameter-shift rule as RX, RY and RZ applies.
+ROTATIONS = frozenset({"RX", "RY", "RZ", "RZZ"})
+TWO_QUBIT_GATES = frozenset({"CX", "CZ", "RZZ"})
+# Gates diagonal in the computational basis: they commute with every Z-type Pauli.
+DIAGONAL_GATES = frozenset({"Z", "RZ", "CZ", "RZZ"})
 
 
 def finite_angle(value: Real) -> float:
@@ -106,10 +111,11 @@ class Gate:
     Supported gates include:
         - 1-qubit Cliffords: 'H', 'X', 'Y', 'Z'
         - 1-qubit rotations: 'RX', 'RY', 'RZ' with angle in radians
-        - 2-qubit entanglers: 'CX' (Controlled-X / CNOT)
+        - 2-qubit entanglers: 'CX' (Controlled-X / CNOT), 'CZ' (Controlled-Z, symmetric)
+        - 2-qubit rotation: 'RZZ' with angle in radians, :math:`\\exp(-i \\theta Z \\otimes Z / 2)`
 
     Args:
-        name: Gate identifier string in {'H', 'X', 'Y', 'Z', 'RX', 'RY', 'RZ', 'CX'}.
+        name: Gate identifier string, one of `GATES`.
         qubits: Tuple of nonnegative integer wire indices.
         angle: Angle in radians (for rotations) or a symbolic Parameter instance.
 
@@ -130,7 +136,7 @@ class Gate:
         object.__setattr__(self, "qubits", tuple(self.qubits))
         if self.name not in GATES:
             raise ValueError(f"Unsupported gate: {self.name}")
-        arity = 2 if self.name == "CX" else 1
+        arity = 2 if self.name in TWO_QUBIT_GATES else 1
         if len(self.qubits) != arity or len(set(self.qubits)) != arity:
             raise ValueError(f"{self.name} needs {arity} distinct qubits")
         if any(type(q) is not int or q < 0 for q in self.qubits):
@@ -145,7 +151,7 @@ class Gate:
     def effects(self) -> Effects:
         """Derive operational effects for this gate."""
         # This is a basis-support property, not a claim to implement Silq's qfree typing.
-        return Effects(basis_preserving=self.name in {"X", "Y", "Z", "RZ", "CX"})
+        return Effects(basis_preserving=self.name in {"X", "Y", "Z", "RZ", "CX", "CZ", "RZZ"})
 
     def inverse(self) -> "Gate":
         """Compute the Hermitian adjoint / inverse of this gate.
@@ -298,9 +304,9 @@ class Program:
         """Append a generic gate to the program, returning a new immutable Program.
 
         Args:
-            name: Gate identifier string in {'H', 'X', 'Y', 'Z', 'RX', 'RY', 'RZ', 'CX'}.
+            name: Gate identifier string, one of `GATES`.
             *qubits: Target qubit names or indices.
-            angle: Rotation angle in radians or a symbolic Parameter (for RX, RY, RZ).
+            angle: Rotation angle in radians or a symbolic Parameter (for `ROTATIONS`).
 
         Returns:
             Program: A new Program instance containing the appended gate.
@@ -405,6 +411,32 @@ class Program:
             Program: New Program with CX appended.
         """
         return self.gate("CX", control, target)
+
+    def cz(self, a: int | str, b: int | str) -> "Program":
+        """Append a Controlled-Z gate. It is symmetric in its two qubits.
+
+        Args:
+            a: First qubit name or integer index.
+            b: Second qubit name or integer index.
+
+        Returns:
+            Program: New Program with CZ appended.
+        """
+        return self.gate("CZ", a, b)
+
+    def rzz(self, a: int | str, b: int | str, angle: float | Parameter) -> "Program":
+        """Append a two-qubit Z rotation
+        :math:`R_{ZZ}(\\theta) = \\exp(-i \\frac{\\theta}{2} Z \\otimes Z)`.
+
+        Args:
+            a: First qubit name or integer index.
+            b: Second qubit name or integer index.
+            angle: Angle in radians (float) or symbolic Parameter.
+
+        Returns:
+            Program: New Program with RZZ appended.
+        """
+        return self.gate("RZZ", a, b, angle=angle)
 
     def bind(self, **values: float) -> "Program":
         """Bind named symbolic parameters to concrete floating-point angle values.

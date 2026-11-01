@@ -11,7 +11,12 @@ license = "Apache-2.0"
 license-files = ["LICENSE"]
 authors = [{ name = "Iraitz Montalbán" }]
 requires-python = ">=3.12"
-dependencies = ["numpy>=2,<3", "qulacs>=0.6.12,<0.7", "scipy>=1.14,<2"]
+dependencies = [
+    "numpy>=2,<3",
+    "qulacs>=0.6.12,<0.7",
+    "scipy>=1.14,<2",
+    "threadpoolctl>=3.1,<4",
+]
 keywords = ["quantum", "simulation", "lazy evaluation", "circuit cutting", "zx-calculus", "qulacs"]
 classifiers = [
     "Development Status :: 3 - Alpha",

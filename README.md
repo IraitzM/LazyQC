@@ -92,6 +92,15 @@ print(plan.explain())
 print(plan.collect().values)  # native simulation happens here
 ```
 
+### Gate set
+
+`H`, `X`, `Y`, `Z`, `RX`, `RY`, `RZ`, `CX`, `CZ` and `RZZ` (`program.cz(a, b)`,
+`program.rzz(a, b, angle)` with `RZZ(theta) = exp(-i theta Z Z / 2)`). The Qiskit and PennyLane
+frontends keep `CZ` and `RZZ` (`IsingZZ`) as single gates instead of expanding them into
+`H, CX, H` and `CX, RZ, CX`, which halves the gate count of QAOA-style circuits. `RZZ` uses the
+same two-term shift rule as the single-qubit rotations. Circuit cutting still cuts `CX` only.
+See `examples/07_qaoa_native_gates.py` for a native against translated comparison.
+
 ### Weighted sums of Pauli terms
 
 A Hamiltonian is a list of `(coefficient, term)` pairs. LazyQC plans the terms
@@ -106,6 +115,33 @@ hamiltonian = program.expectation([
 ])
 print(plan_all([hamiltonian]).collect().values)  # one value for the whole sum
 ```
+
+### Qiskit Estimator
+
+`lazyqc.frontends.qiskit.Estimator` implements Qiskit's `BaseEstimatorV2`, so code that goes
+through the Estimator primitive, including `EstimatorQNN`, can use LazyQC by swapping the
+estimator. Every PUB of a job is planned together, and the circuit is translated once.
+
+```python
+from qiskit.quantum_info import SparsePauliOp
+from lazyqc.frontends.qiskit import Estimator
+
+estimator = Estimator()  # Estimator(default_precision=0.01, seed=7) adds emulated noise
+result = estimator.run([(circuit, SparsePauliOp(["ZZI", "IXX"], [0.5, -1.0]), values)]).result()
+print(result[0].data.evs)
+```
+
+Values are exact; a `precision` above zero adds Gaussian noise to them as
+`StatevectorEstimator` does. See `examples/06_qiskit_estimator_qnn.py` for a training loop timed against Aer.
+
+### Native threads
+
+Qulacs uses one OpenMP thread per core by default, which is slower than a single thread on the
+small states cone reduction produces (2 to 3 times at 10 to 12 qubits) and competes with other
+OpenMP libraries in the same process, such as Aer. `plan.collect()` therefore runs on one thread
+when every task is narrower than 14 qubits, and caps the team at 8 threads for wider tasks. The
+setting used is reported in `result.stats.native_threads`. Pass
+`collect(native_threads="default")` to keep Qulacs' own team, or an integer to fix its size.
 
 ## Gradients
 

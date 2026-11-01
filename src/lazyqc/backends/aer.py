@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from math import isfinite
 
 from ..instruments import Projector
-from ..ir import ROTATIONS, Parameter
+from ..ir import GATES, ROTATIONS, Parameter
 from .qulacs import Counters
 
 
@@ -36,7 +36,7 @@ class AerBackend:
         """Return the gates, state convention, and numerical precision supported."""
         return {
             "name": f"aer-{self.device.lower()}",
-            "gates": ("H", "X", "Y", "Z", "RX", "RY", "RZ", "CX"),
+            "gates": tuple(sorted(GATES)),
             "initial_state": "zero",
             "evaluation": "exact_pauli",
             "precision": "complex128",
@@ -57,6 +57,10 @@ class AerBackend:
             qs = [mapping[q] for q in gate.qubits]
             if gate.name == "CX":
                 circuit.cx(*qs)
+            elif gate.name == "CZ":
+                circuit.cz(*qs)
+            elif gate.name == "RZZ":
+                circuit.rzz(gate.angle, *qs)
             elif gate.name in ROTATIONS:
                 # Qiskit shares the public convention R_P(theta) = exp(-i theta P / 2).
                 getattr(circuit, gate.name.lower())(gate.angle, qs[0])
