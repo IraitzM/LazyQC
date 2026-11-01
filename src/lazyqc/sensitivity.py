@@ -183,6 +183,33 @@ def profile_sensitivity(
     )
 
 
+def parameter_shift_requests(program, observables, gate_indices):
+    """Return the requests of a symbolic parameter-shift Jacobian, program-major.
+
+    `program` holds `Parameter` angles at every index in `gate_indices` (see
+    `Program.parametrize`). The base program comes first, then a ``+pi/2`` and a
+    ``-pi/2`` shift of each occurrence, with one request per observable. The shifts are
+    offsets of the same parameters, so planning this batch once serves every
+    optimizer step: ``plan_all(requests, symbolic=True).collect(bindings=...)``.
+    The values reshape to ``(1 + 2 * len(gate_indices), len(observables))``.
+    """
+    indices = tuple(gate_indices)
+    observables = tuple(observables)
+    operations = program.operations
+    for i in indices:
+        if type(i) is not int or not 0 <= i < len(operations):
+            raise ValueError("gate_indices must be rotation occurrence indices")
+        if not isinstance(operations[i].angle, Parameter):
+            raise ValueError("Shifted occurrences need symbolic angles; use Program.parametrize")
+    programs = [program]
+    for i in indices:
+        for sign in (1, -1):
+            gates = list(operations)
+            gates[i] = replace(gates[i], angle=gates[i].angle.shifted(sign * pi / 2))
+            programs.append(replace(program, operations=tuple(gates)))
+    return [p.expectation(o) for p in programs for o in observables]
+
+
 def _validate_adjoint_limits(wires, planning_options):
     """Reject adjoint state-vector tasks that exceed planner resource limits."""
     max_state_qubits = planning_options.get("max_state_qubits", 24)

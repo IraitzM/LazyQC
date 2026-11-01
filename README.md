@@ -116,6 +116,30 @@ hamiltonian = program.expectation([
 print(plan_all([hamiltonian]).collect().values)  # one value for the whole sum
 ```
 
+### Training loops: plan once, rebind at every step
+
+Training repeats one circuit structure with new angles. Free the angles with
+`Program.parametrize`, build the parameter-shift batch once, and pass the values of each
+step to `collect`:
+
+```python
+from lazyqc import Pauli, parameter_shift_requests, plan_all
+
+symbolic, values = program.parametrize(indices)          # angles become p0, p1, ...
+requests = parameter_shift_requests(symbolic, [Pauli(((0, "Z"),))], indices)
+plan = plan_all(requests, symbolic=True)                 # structure only, no angles yet
+
+for step in range(steps):
+    result = plan.collect(bindings=values)               # lowered circuits are reused
+    ...                                                  # update `values` from the Jacobian
+```
+
+Shifts are offsets of the same parameter (`Parameter("p0").shifted(pi / 2)`), so one plan
+serves every step and values equal planning from scratch. A symbolic plan lowers each task
+once into a Qulacs parametric circuit and only sets the new angles afterwards; backends
+without `rebind` bind each task instead. Symbolic planning does not combine with
+optimization, cutting or batch options. See `examples/08_plan_once_training.py`.
+
 ### Qiskit Estimator
 
 `lazyqc.frontends.qiskit.Estimator` implements Qiskit's `BaseEstimatorV2`, so code that goes

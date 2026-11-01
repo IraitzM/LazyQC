@@ -20,6 +20,8 @@ class Lowered:
     observables: tuple
     width: int
     projected: bool = False
+    # (parameter index in the circuit, parameter name, offset) per symbolic gate.
+    slots: tuple = ()
 
 
 class QulacsBackend:
@@ -38,11 +40,16 @@ class QulacsBackend:
             "precision": "complex128",
         }
 
-    def lower(self, task):
-        """Lower a backend-independent task into Qulacs objects."""
-        from qulacs import Observable, QuantumCircuit
+    def lower(self, task, *, parametric=False):
+        """Lower a backend-independent task into Qulacs objects.
 
-        circuit = QuantumCircuit(task.width)
+        With `parametric`, symbolic gates become Qulacs parametric gates and the result
+        records where each one lives, so `rebind` can set new angles without lowering again.
+        """
+        from qulacs import Observable, ParametricQuantumCircuit, QuantumCircuit
+
+        circuit = ParametricQuantumCircuit(task.width) if parametric else QuantumCircuit(task.width)
+        slots = []
         mapping = {q: i for i, q in enumerate(task.wires)}
         for gate in task.operations:
             if isinstance(gate, Projector):
@@ -50,9 +57,16 @@ class QulacsBackend:
 
                 circuit.add_gate((P0 if gate.outcome == 0 else P1)(mapping[gate.qubits[0]]))
                 continue
-            if isinstance(gate.angle, Parameter):
-                raise ValueError("Cannot lower unbound parameters")
             qs = [mapping[q] for q in gate.qubits]
+            if isinstance(gate.angle, Parameter):
+                if not parametric:
+                    raise ValueError("Cannot lower unbound parameters")
+                slots.append((circuit.get_parameter_count(), gate.angle.name, gate.angle.offset))
+                if gate.name == "RZZ":
+                    circuit.add_parametric_multi_Pauli_rotation_gate(qs, [3, 3], 0.0)
+                else:
+                    getattr(circuit, f"add_parametric_{gate.name}_gate")(qs[0], 0.0)
+                continue
             if gate.name == "CX":
                 circuit.add_CNOT_gate(*qs)
             elif gate.name == "CZ":
@@ -75,7 +89,15 @@ class QulacsBackend:
             tuple(observables),
             task.width,
             any(isinstance(g, Projector) for g in task.operations),
+            tuple(slots),
         )
+
+    @staticmethod
+    def rebind(lowered, values):
+        """Set a parametric lowering's angles in place (Qulacs rotates with the opposite sign)."""
+        circuit = lowered.circuit
+        for index, name, offset in lowered.slots:
+            circuit.set_parameter(index, -(values[name] + offset))
 
     def evolve(self, lowered):
         """Allocate, evolve, and normalization-check a Qulacs state."""

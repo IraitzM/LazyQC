@@ -5,6 +5,7 @@ from time import perf_counter_ns
 
 from .backends.qulacs import QulacsBackend
 from .instruments import Projector
+from .ir import finite_angle
 from .threads import native_thread_limit
 
 
@@ -47,6 +48,7 @@ def execute(
     wide_from=None,
     mps_backend=None,
     native_threads="auto",
+    bindings=None,
 ) -> Result:
     """Execute a serial plan and return values together with timing statistics.
 
@@ -59,9 +61,14 @@ def execute(
     `native_threads` sets Qulacs' OpenMP team for the call: ``"auto"`` (default) uses one thread
     when every task it runs is narrower than `lazyqc.threads.SMALL_TASK_QUBITS`, ``"default"``
     or ``None`` leaves the team alone, and a positive integer fixes its size.
+
+    `bindings` maps parameter names to angles for plans built from unbound `Parameter`s.
     """
     if plan.cost_model is not None:
         plan.cost_model.validate_environment()
+    values_by_name = {k: finite_angle(v) for k, v in (bindings or {}).items()}
+    if missing := [n for n in plan.parameters if n not in values_by_name]:
+        raise ValueError(f"Unbound parameters: {', '.join(missing)}")
     backend = backend if backend is not None else QulacsBackend()
     _check_backend(backend, "backend")
     if wide_backend is not None:
@@ -111,7 +118,20 @@ def execute(
                 raise ValueError("Task exceeds the plan state limits")
             target = route(task)
             mark = perf_counter_ns()
-            lowered = target.lower(task)
+            if plan.parameters and hasattr(target, "rebind"):
+                # Symbolic plans lower once; later collections only set the new angles.
+                key = (type(target), id(task))
+                entry = plan.lowered.get(key)
+                if entry is None or entry[0] is not task:
+                    entry = plan.lowered[key] = (
+                        task,
+                        target.lower(task, parametric=bool(task.symbolic)),
+                    )
+                lowered = entry[1]
+                if lowered.slots:
+                    target.rebind(lowered, values_by_name)
+            else:
+                lowered = target.lower(task.bound(values_by_name))
             lowering_ns += perf_counter_ns() - mark
             mark = perf_counter_ns()
             state = target.evolve(lowered)
