@@ -1,3 +1,11 @@
+## v0.3.0 (2026-11-01)
+
+### Feat
+
+- **qiskit**: `Estimator` implementing `BaseEstimatorV2`, so `EstimatorQNN` and other primitive-based code can swap to LazyQC; every PUB of a job is planned together and parametric circuits are translated once (#5, #13, #23)
+- **ir**: native `CZ` and `RZZ` gates across the IR, all backends, the adjoint kernel, the Qiskit and PennyLane frontends and the ZX conversion; QAOA circuits keep about half the gates (#14, #26)
+- **executor**: `collect(native_threads="auto")` sizes Qulacs' OpenMP team by task width, one thread below 14 qubits and at most 8 above; adds the `threadpoolctl` dependency and `stats.native_threads` (#24, #25)
+
 ## v0.2.0 (2026-10-31)
 
 ### Feat
