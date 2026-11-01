@@ -8,6 +8,14 @@ from .instruments import Projector
 from .ir import Gate, Parameter, Pauli
 from .tensor_cost import mps_payload_bytes
 
+# Cost of lowering one gate, in the units of `Task.score`, which counts amplitude work only
+# and so undervalues gates on narrow states. Fitted by relative non-negative least squares on
+# the collection time of 936 candidate plans of seeded random circuits: about 1.0 microsecond
+# per gate against 1.4 ns per unit (Qulacs, one thread). A per-task constant, which the
+# fit also supports, was rejected on fresh instances: it moved narrow-cone instances to the
+# dense plan (see issue #2).
+GATE_COST = 1_020.0
+
 
 @dataclass(frozen=True)
 class Task:
@@ -67,7 +75,9 @@ class Task:
             return (1 + len(self.operations)) * self.bond**3 + (
                 len(self.outputs) * self.width * self.bond**2
             )
-        return (1 << self.width) * (1 + len(self.operations) + len(self.outputs))
+        return (GATE_COST + (1 << self.width)) * len(self.operations) + (1 << self.width) * (
+            1 + len(self.outputs)
+        )
 
 
 @dataclass(frozen=True)
