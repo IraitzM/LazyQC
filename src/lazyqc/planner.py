@@ -44,7 +44,7 @@ class _Analysis:
     optimization_ns: int = 0
 
 
-def _analyze(requests, strategy):
+def _analyze(requests, strategy, symbolic=False):
     """Build unoptimized full, separate, or causal-cone candidates."""
     # Cone membership depends only on gate wires, so it is computed once per
     # topology and observable support. Grouping keys pair an interned circuit
@@ -56,7 +56,9 @@ def _analyze(requests, strategy):
         program = request.program
         known = programs.get(id(program))
         if known is None:
-            operations = program.resolved_operations()
+            operations = (
+                program.bound_operations() if symbolic else program.resolved_operations()
+            )
             shape_ops = tuple((g.name, g.qubits) for g in operations)
             layout = layouts.setdefault((program.n_qubits, shape_ops), len(layouts))
             angles = tuple(g.angle for g in operations)
@@ -278,6 +280,7 @@ def plan_all(
     total_state_bytes=None,
     select=None,
     analysis="budgeted",
+    symbolic=False,
 ) -> Plan:
     """Plan requests under strategy, resource, cache, and optimization constraints.
 
@@ -300,6 +303,10 @@ def plan_all(
             joint search and keeps the least predicted execution cost, charging
             both searches; it requires ``cutting.expected_collections`` and a
             calibrated cost model.
+        symbolic: Allow programs with unbound `Parameter` angles. The plan then depends
+            on structure only, and ``plan.collect(bindings=...)`` supplies the angles, so
+            one plan serves every step of a training loop. Optimization and batch
+            options need numeric angles and are rejected.
 
     Returns:
         Plan: An immutable plan containing the selected candidate and alternatives.
@@ -327,8 +334,19 @@ def plan_all(
             total_state_bytes=total_state_bytes,
             select=select,
             analysis=analysis,
+            symbolic=symbolic,
         )
         return SumPlan(inner, layout)
+    if symbolic and (
+        optimization != "none"
+        or cutting is not None
+        or workers != 1
+        or total_state_bytes is not None
+        or cost_model is not None
+    ):
+        raise ValueError(
+            "symbolic planning does not support optimization, cutting, batch or cost-model options"
+        )
     if select is not None and select != "lifetime":
         raise ValueError("select must be None or 'lifetime'")
     if select == "lifetime" and cutting is None and workers == 1 and total_state_bytes is None:
@@ -390,15 +408,23 @@ def plan_all(
     cache_status = "disabled"
     analysed = "full" if strategy == "mps" else strategy
     if budget is not None and budget["skipped"]:
-        analysis = _analyze(requests, "full")
+        analysis = _analyze(requests, "full", symbolic)
     elif cache is None:
-        analysis = _analyze_optimized(requests, analysed, optimization, options)
+        analysis = (
+            _analyze(requests, analysed, True)
+            if symbolic
+            else _analyze_optimized(requests, analysed, optimization, options)
+        )
     else:
-        key = (_cache_key(requests, analysed), optimization, options, identity)
+        key = (_cache_key(requests, analysed), optimization, options, identity, symbolic)
         analysis = cache._get(key)
         cache_status = "hit" if analysis is not None else "miss"
         if analysis is None:
-            analysis = _analyze_optimized(requests, analysed, optimization, options)
+            analysis = (
+                _analyze(requests, analysed, True)
+                if symbolic
+                else _analyze_optimized(requests, analysed, optimization, options)
+            )
             cache._put(key, analysis)
     candidates = list(analysis.candidates)
     for i, candidate in enumerate(candidates):

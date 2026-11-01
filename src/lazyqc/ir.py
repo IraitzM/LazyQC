@@ -74,11 +74,21 @@ class Parameter:
         'theta'
     """
     name: str
+    offset: float = 0.0
 
     def __post_init__(self):
-        """Reject empty or non-string symbolic parameter names."""
+        """Reject empty or non-string symbolic parameter names and nonfinite offsets."""
         if not isinstance(self.name, str) or not self.name:
             raise ValueError("Parameter name must be a nonempty string")
+        object.__setattr__(self, "offset", finite_angle(self.offset))
+
+    def shifted(self, offset: float) -> "Parameter":
+        """Return the angle ``name + offset``, as used by shift rules.
+
+        The shifted angle resolves to the bound value plus `offset`, so a plan built
+        once can be collected with new bindings without rebuilding the shifted programs.
+        """
+        return Parameter(self.name, self.offset + finite_angle(offset))
 
 
 @dataclass(frozen=True)
@@ -469,9 +479,56 @@ class Program:
             if isinstance(g.angle, Parameter):
                 if g.angle.name not in values:
                     raise ValueError(f"Unbound parameter: {g.angle.name}")
-                g = replace(g, angle=values[g.angle.name])
+                g = replace(g, angle=values[g.angle.name] + g.angle.offset)
             result.append(g)
         return tuple(result)
+
+    def parametrize(
+        self, gate_indices=None, prefix: str = "p"
+    ) -> "tuple[Program, dict[str, float]]":
+        """Replace rotation angles with fresh symbolic parameters.
+
+        Args:
+            gate_indices: Occurrence indices of the rotations to free; every rotation
+                when omitted.
+            prefix: Parameters are named ``{prefix}{k}`` for the k-th freed rotation.
+
+        Returns:
+            A program whose freed angles are `Parameter`s, and the dictionary of their
+            current values, ready for ``plan.collect(bindings=values)``.
+        """
+        if gate_indices is None:
+            gate_indices = [i for i, g in enumerate(self.operations) if g.name in ROTATIONS]
+        indices = tuple(gate_indices)
+        operations = list(self.resolved_operations())
+        values = {}
+        for k, i in enumerate(indices):
+            if type(i) is not int or not 0 <= i < len(operations):
+                raise ValueError("gate_indices must be rotation occurrence indices")
+            gate = operations[i]
+            if gate.name not in ROTATIONS:
+                raise ValueError("gate_indices must be rotation occurrence indices")
+            values[f"{prefix}{k}"] = gate.angle
+            operations[i] = replace(gate, angle=Parameter(f"{prefix}{k}"))
+        if len(set(indices)) != len(indices):
+            raise ValueError("gate_indices must be distinct")
+        return replace(self, operations=tuple(operations), bindings=()), values
+
+    def bound_operations(self) -> tuple[Gate, ...]:
+        """Return gates with the bound parameters substituted and the others kept symbolic.
+
+        The planner uses this form, so a plan can be built before every parameter has
+        a value and collected later with ``Plan.collect(bindings=...)``.
+        """
+        values = dict(self.bindings)
+        if not values:
+            return self.operations
+        return tuple(
+            replace(g, angle=values[g.angle.name] + g.angle.offset)
+            if isinstance(g.angle, Parameter) and g.angle.name in values
+            else g
+            for g in self.operations
+        )
 
     @property
     def versioned_operations(self) -> tuple[VersionedOperation, ...]:
