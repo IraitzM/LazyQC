@@ -189,11 +189,22 @@ class Plan:
             ],
         }
 
-    def collect(self, *, backend=None, wide_backend=None, wide_from=None, mps_backend=None):
+    def collect(
+        self,
+        *,
+        backend=None,
+        wide_backend=None,
+        wide_from=None,
+        mps_backend=None,
+        native_threads="auto",
+    ):
         """Execute the selected plan and return its values and statistics.
 
         Tasks of at least `wide_from` qubits run on `wide_backend` when given.
         Tensor-network tasks run on `mps_backend` (quimb exact MPS by default).
+        `native_threads` sets Qulacs' OpenMP team: ``"auto"`` (default) uses one thread
+        when every task is narrower than `lazyqc.threads.SMALL_TASK_QUBITS`, ``"default"``
+        leaves it alone, and a positive integer fixes it.
         """
         from .executor import execute
 
@@ -203,4 +214,5 @@ class Plan:
             wide_backend=wide_backend,
             wide_from=wide_from,
             mps_backend=mps_backend,
+            native_threads=native_threads,
         )

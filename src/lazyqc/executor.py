@@ -5,6 +5,7 @@ from time import perf_counter_ns
 
 from .backends.qulacs import QulacsBackend
 from .instruments import Projector
+from .threads import native_thread_limit
 
 
 @dataclass(frozen=True)
@@ -19,6 +20,7 @@ class ExecutionStats:
     expectation_ns: int
     assembly_ns: int
     execution_ns: int
+    native_threads: str = "default"
 
 
 @dataclass(frozen=True)
@@ -37,7 +39,15 @@ def _check_backend(backend, role):
         raise ValueError(f"{role} must provide lower, evolve, expectations and counters")
 
 
-def execute(plan, *, backend=None, wide_backend=None, wide_from=None, mps_backend=None) -> Result:
+def execute(
+    plan,
+    *,
+    backend=None,
+    wide_backend=None,
+    wide_from=None,
+    mps_backend=None,
+    native_threads="auto",
+) -> Result:
     """Execute a serial plan and return values together with timing statistics.
 
     Any backend implementing lower/evolve/expectations can run the plan; Qulacs
@@ -45,6 +55,10 @@ def execute(plan, *, backend=None, wide_backend=None, wide_from=None, mps_backen
     `wide_backend`, unitary tasks of at least `wide_from` qubits run there (for
     example a GPU statevector) and narrower tasks stay on `backend`. Tensor-network
     tasks (exact MPS fallback) run on `mps_backend`, quimb by default.
+
+    `native_threads` sets Qulacs' OpenMP team for the call: ``"auto"`` (default) uses one thread
+    when every task it runs is narrower than `lazyqc.threads.SMALL_TASK_QUBITS`, ``"default"``
+    or ``None`` leaves the team alone, and a positive integer fixes its size.
     """
     if plan.cost_model is not None:
         plan.cost_model.validate_environment()
@@ -73,33 +87,44 @@ def execute(plan, *, backend=None, wide_backend=None, wide_from=None, mps_backen
     for index, value in plan.constant_outputs:
         values[index] = value
     assembly_ns += perf_counter_ns() - mark
-    for task in plan.selected.tasks:
-        # Recheck before native allocation even if a caller manually assembled a Plan.
-        if task.state_bytes > plan.max_state_bytes or (
-            not task.bond and task.width > plan.max_state_qubits
-        ):
-            raise ValueError("Task exceeds the plan state limits")
-        target = backend
+
+    def route(task):
+        """Return the backend that runs `task`."""
         if task.bond:
-            target = mps_backend
-        elif wide_from is not None and task.width >= wide_from:
+            return mps_backend
+        if wide_from is not None and task.width >= wide_from:
             if not any(isinstance(g, Projector) for g in task.operations):
-                target = wide_backend
-        mark = perf_counter_ns()
-        lowered = target.lower(task)
-        lowering_ns += perf_counter_ns() - mark
-        mark = perf_counter_ns()
-        state = target.evolve(lowered)
-        evolution_ns += perf_counter_ns() - mark
-        mark = perf_counter_ns()
-        outputs = target.expectations(state, lowered.observables)
-        expectation_ns += perf_counter_ns() - mark
-        mark = perf_counter_ns()
-        for (index, _), value in zip(task.outputs, outputs, strict=True):
-            values[index] = value
-        # Release before allocating the next state; one state payload live at a time.
-        del state, lowered
-        assembly_ns += perf_counter_ns() - mark
+                return wide_backend
+        return backend
+
+    if isinstance(backend, QulacsBackend):
+        widths = [t.width for t in plan.selected.tasks if route(t) is backend]
+        limit, threads_label = native_thread_limit(native_threads, widths)
+    else:
+        limit, threads_label = native_thread_limit(None, ())
+    with limit:
+        for task in plan.selected.tasks:
+            # Recheck before native allocation even if a caller manually assembled a Plan.
+            if task.state_bytes > plan.max_state_bytes or (
+                not task.bond and task.width > plan.max_state_qubits
+            ):
+                raise ValueError("Task exceeds the plan state limits")
+            target = route(task)
+            mark = perf_counter_ns()
+            lowered = target.lower(task)
+            lowering_ns += perf_counter_ns() - mark
+            mark = perf_counter_ns()
+            state = target.evolve(lowered)
+            evolution_ns += perf_counter_ns() - mark
+            mark = perf_counter_ns()
+            outputs = target.expectations(state, lowered.observables)
+            expectation_ns += perf_counter_ns() - mark
+            mark = perf_counter_ns()
+            for (index, _), value in zip(task.outputs, outputs, strict=True):
+                values[index] = value
+            # Release before allocating the next state; one state payload live at a time.
+            del state, lowered
+            assembly_ns += perf_counter_ns() - mark
     mark = perf_counter_ns()
     if any(value is None for value in values):
         raise RuntimeError("Plan did not produce every requested result")
@@ -120,5 +145,6 @@ def execute(plan, *, backend=None, wide_backend=None, wide_from=None, mps_backen
         expectation_ns,
         assembly_ns,
         perf_counter_ns() - start,
+        threads_label,
     )
     return Result(values, stats, plan.selected.strategy, plan.selected.optimization)

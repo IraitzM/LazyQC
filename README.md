@@ -123,8 +123,16 @@ print(result[0].data.evs)
 ```
 
 Values are exact; a `precision` above zero adds Gaussian noise to them as
-`StatevectorEstimator` does. Set `OMP_NUM_THREADS=1` and `QULACS_NUM_THREADS=1` for small
-states. See `examples/06_qiskit_estimator_qnn.py` for a training loop timed against Aer.
+`StatevectorEstimator` does. See `examples/06_qiskit_estimator_qnn.py` for a training loop timed against Aer.
+
+### Native threads
+
+Qulacs uses one OpenMP thread per core by default, which is slower than a single thread on the
+small states cone reduction produces (2 to 3 times at 10 to 12 qubits) and competes with other
+OpenMP libraries in the same process, such as Aer. `plan.collect()` therefore runs on one thread
+when every task is narrower than 14 qubits, and caps the team at 8 threads for wider tasks. The
+setting used is reported in `result.stats.native_threads`. Pass
+`collect(native_threads="default")` to keep Qulacs' own team, or an integer to fix its size.
 
 ## Gradients
 

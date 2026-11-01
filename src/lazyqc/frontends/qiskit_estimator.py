@@ -10,9 +10,9 @@ Values are exact. A ``precision`` above zero adds Gaussian noise to the exact
 values, as ``StatevectorEstimator`` does; the plan is still chosen for exact
 simulation and nothing is sampled from a distribution.
 
-Performance note: Qulacs defaults to an OpenMP thread team, which is far slower than one
-thread on the small states cone reduction produces. Set ``OMP_NUM_THREADS=1`` and
-``QULACS_NUM_THREADS=1`` before importing Qulacs, as the benchmarks do.
+Performance note: ``collect`` runs Qulacs on one thread when every task is narrower than
+``lazyqc.threads.SMALL_TASK_QUBITS`` and caps the team for wider ones (``native_threads="auto"``).
+Pass ``collect_options={"native_threads": "default"}`` to leave Qulacs' team alone.
 """
 
 import numpy as np
