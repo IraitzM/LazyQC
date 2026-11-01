@@ -228,6 +228,11 @@ def _adjoint_task_gradient(operations, wires, cone, weighted_observables):
         qs = [mapping[q] for q in gate.qubits]
         if gate.name == "CX":
             circuit.add_CNOT_gate(*qs)
+        elif gate.name == "CZ":
+            circuit.add_CZ_gate(*qs)
+        elif gate.name == "RZZ":
+            circuit.add_parametric_multi_Pauli_rotation_gate(qs, [3, 3], -gate.angle)
+            parameter_gates.append(i)
         elif gate.name in ROTATIONS:
             # Qulacs rotates with the opposite sign to LazyQC's IR convention.
             getattr(circuit, f"add_parametric_{gate.name}_gate")(qs[0], -gate.angle)

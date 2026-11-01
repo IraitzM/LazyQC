@@ -179,7 +179,7 @@ def from_rhyme_ir(data):
         circuit.unitary(matrix, list(wires))
     lowered = transpile(
         circuit,
-        basis_gates=sorted(g.lower() for g in GATES),
+        basis_gates=sorted(g.lower() for g in GATES - {"CZ", "RZZ"}),
         optimization_level=1,
         seed_transpiler=0,
     )

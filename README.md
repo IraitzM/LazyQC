@@ -92,6 +92,15 @@ print(plan.explain())
 print(plan.collect().values)  # native simulation happens here
 ```
 
+### Gate set
+
+`H`, `X`, `Y`, `Z`, `RX`, `RY`, `RZ`, `CX`, `CZ` and `RZZ` (`program.cz(a, b)`,
+`program.rzz(a, b, angle)` with `RZZ(theta) = exp(-i theta Z Z / 2)`). The Qiskit and PennyLane
+frontends keep `CZ` and `RZZ` (`IsingZZ`) as single gates instead of expanding them into
+`H, CX, H` and `CX, RZ, CX`, which halves the gate count of QAOA-style circuits. `RZZ` uses the
+same two-term shift rule as the single-qubit rotations. Circuit cutting still cuts `CX` only.
+See `examples/07_qaoa_native_gates.py` for a native against translated comparison.
+
 ### Weighted sums of Pauli terms
 
 A Hamiltonian is a list of `(coefficient, term)` pairs. LazyQC plans the terms

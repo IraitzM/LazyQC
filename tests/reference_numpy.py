@@ -30,6 +30,19 @@ def statevector(n, operations):
             for i in range(2**n):
                 j = i ^ (1 << target) if i & (1 << control) else i
                 matrix[j, i] = 1
+        elif name in ("CZ", "RZZ"):
+            # Diagonal gates, written from their definitions: CZ = diag(1, 1, 1, -1) and
+            # RZZ(theta) = exp(-i theta Z Z / 2), whose phase depends on the parity of the pair.
+            a, b = wires
+            diagonal = np.ones(2**n, dtype=complex)
+            for i in range(2**n):
+                bits = (i >> a) & 1, (i >> b) & 1
+                if name == "CZ":
+                    diagonal[i] = -1 if bits == (1, 1) else 1
+                else:
+                    parity = -1 if bits[0] != bits[1] else 1  # eigenvalue of Z (x) Z
+                    diagonal[i] = np.exp(-0.5j * angle * parity)
+            matrix = np.diag(diagonal)
         else:
             local = (
                 (np.cos(angle / 2) * MATRICES["I"] - 1j * np.sin(angle / 2) * MATRICES[name[1]])
