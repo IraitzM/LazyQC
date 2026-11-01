@@ -12,7 +12,7 @@
   <a href="https://github.com/IraitzM/LazyQC/stargazers"><img src="https://img.shields.io/github/stars/IraitzM/LazyQC?style=social" alt="GitHub stars"></a>
 </p>
 
-LazyQC is a Python framework for lazy, observable-driven quantum simulation (v0.3.0). You describe programs and request expectation values first; LazyQC plans the batch (observable cones, shared preparations, ZX rewrites, and exact CX cuts under memory limits) and only runs the native [Qulacs](https://github.com/qulacs/qulacs) simulation when you call `collect()`.
+LazyQC is a Python framework for lazy, observable-driven quantum simulation. You describe programs and request expectation values first; LazyQC plans the batch (observable cones, shared preparations, ZX rewrites, and exact CX cuts under memory limits) and only runs the native [Qulacs](https://github.com/qulacs/qulacs) simulation when you call `collect()`.
 
 ## Installation
 
@@ -115,6 +115,30 @@ hamiltonian = program.expectation([
 ])
 print(plan_all([hamiltonian]).collect().values)  # one value for the whole sum
 ```
+
+### Training loops: plan once, rebind at every step
+
+Training repeats one circuit structure with new angles. Free the angles with
+`Program.parametrize`, build the parameter-shift batch once, and pass the values of each
+step to `collect`:
+
+```python
+from lazyqc import Pauli, parameter_shift_requests, plan_all
+
+symbolic, values = program.parametrize(indices)          # angles become p0, p1, ...
+requests = parameter_shift_requests(symbolic, [Pauli(((0, "Z"),))], indices)
+plan = plan_all(requests, symbolic=True)                 # structure only, no angles yet
+
+for step in range(steps):
+    result = plan.collect(bindings=values)               # lowered circuits are reused
+    ...                                                  # update `values` from the Jacobian
+```
+
+Shifts are offsets of the same parameter (`Parameter("p0").shifted(pi / 2)`), so one plan
+serves every step and values equal planning from scratch. A symbolic plan lowers each task
+once into a Qulacs parametric circuit and only sets the new angles afterwards; backends
+without `rebind` bind each task instead. Symbolic planning does not combine with
+optimization, cutting or batch options. See `examples/08_plan_once_training.py`.
 
 ### Qiskit Estimator
 

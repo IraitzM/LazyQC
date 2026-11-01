@@ -1,12 +1,20 @@
 """Backend-independent physical plans. They contain no quantum state objects."""
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field, replace
 from functools import cached_property
 
 from .cost import CalibratedCostModel, _compute_features
 from .instruments import Projector
-from .ir import Gate, Pauli
+from .ir import Gate, Parameter, Pauli
 from .tensor_cost import mps_payload_bytes
+
+# Cost of lowering one gate, in the units of `Task.score`, which counts amplitude work only
+# and so undervalues gates on narrow states. Fitted by relative non-negative least squares on
+# the collection time of 936 candidate plans of seeded random circuits: about 1.0 microsecond
+# per gate against 1.4 ns per unit (Qulacs, one thread). A per-task constant, which the
+# fit also supports, was rejected on fresh instances: it moved narrow-cone instances to the
+# dense plan (see issue #2).
+GATE_COST = 1_020.0
 
 
 @dataclass(frozen=True)
@@ -16,6 +24,32 @@ class Task:
     outputs: tuple[tuple[int, Pauli], ...]
     # Largest exact-MPS bond for tensor-network tasks; 0 marks a state-vector task.
     bond: int = 0
+
+    @cached_property
+    def symbolic(self):
+        """Return the positions of gates whose angle is still a symbolic parameter."""
+        return tuple(
+            i
+            for i, g in enumerate(self.operations)
+            if isinstance(g, Gate) and isinstance(g.angle, Parameter)
+        )
+
+    @property
+    def parameters(self):
+        """Return the sorted names of the parameters this task still needs."""
+        return tuple(sorted({self.operations[i].angle.name for i in self.symbolic}))
+
+    def bound(self, values):
+        """Return the task with every symbolic angle replaced by ``values[name] + offset``."""
+        if not self.symbolic:
+            return self
+        operations = list(self.operations)
+        for i in self.symbolic:
+            angle = operations[i].angle
+            if angle.name not in values:
+                raise ValueError(f"Unbound parameter: {angle.name}")
+            operations[i] = replace(operations[i], angle=values[angle.name] + angle.offset)
+        return replace(self, operations=tuple(operations))
 
     @property
     def representation(self):
@@ -41,7 +75,9 @@ class Task:
             return (1 + len(self.operations)) * self.bond**3 + (
                 len(self.outputs) * self.width * self.bond**2
             )
-        return (1 << self.width) * (1 + len(self.operations) + len(self.outputs))
+        return (GATE_COST + (1 << self.width)) * len(self.operations) + (1 << self.width) * (
+            1 + len(self.outputs)
+        )
 
 
 @dataclass(frozen=True)
@@ -115,6 +151,9 @@ class Plan:
     optimizer_id: str | None = None
     zx_options: object | None = None
     analysis_budget: tuple = ()
+    # Lowered circuits of symbolic plans, kept between collections. They hold angles
+    # and structure only, never states or results.
+    lowered: dict = field(default_factory=dict, compare=False, repr=False)
 
     def explain(self) -> dict:
         """Return a serializable explanation of selection, limits, and alternatives."""
@@ -189,6 +228,11 @@ class Plan:
             ],
         }
 
+    @cached_property
+    def parameters(self):
+        """Return the sorted names of the parameters the selected tasks still need."""
+        return tuple(sorted({n for t in self.selected.tasks for n in t.parameters}))
+
     def collect(
         self,
         *,
@@ -197,6 +241,7 @@ class Plan:
         wide_from=None,
         mps_backend=None,
         native_threads="auto",
+        bindings=None,
     ):
         """Execute the selected plan and return its values and statistics.
 
@@ -205,6 +250,10 @@ class Plan:
         `native_threads` sets Qulacs' OpenMP team: ``"auto"`` (default) uses one thread
         when every task is narrower than `lazyqc.threads.SMALL_TASK_QUBITS`, ``"default"``
         leaves it alone, and a positive integer fixes it.
+
+        A plan built from programs with unbound `Parameter` angles takes their values in
+        `bindings`, for example ``{"theta": 0.3}``. The plan is reusable, so a training loop
+        plans once and collects at every step with new values.
         """
         from .executor import execute
 
@@ -215,4 +264,5 @@ class Plan:
             wide_from=wide_from,
             mps_backend=mps_backend,
             native_threads=native_threads,
+            bindings=bindings,
         )
