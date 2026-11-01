@@ -1,3 +1,10 @@
+## v0.4.0 (2026-11-01)
+
+### Feat
+
+- **plan**: charge a lowering cost per gate in the work score
+- **planner**: plan once and rebind angles across training steps
+
 ## v0.3.0 (2026-11-01)
 
 ### Feat
