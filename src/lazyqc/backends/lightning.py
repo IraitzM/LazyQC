@@ -13,11 +13,13 @@ from ..ir import GATES, ROTATIONS, Parameter
 from .qulacs import Counters
 
 
-@dataclass(frozen=True)
+@dataclass
 class LightningLowered:
     tape: object
     observables: tuple[int, ...]
     width: int
+    # (index among the tape parameters, name, offset) per symbolic gate; `rebind` swaps `tape`.
+    slots: tuple = ()
 
 
 class LightningBackend:
@@ -51,16 +53,26 @@ class LightningBackend:
             device = self._devices[width] = self._qml.device(self.device, wires=width)
         return device
 
-    def lower(self, task):
-        """Lower a unitary task into a PennyLane tape measuring every requested Pauli."""
+    def lower(self, task, *, parametric=False):
+        """Lower a unitary task into a PennyLane tape measuring every requested Pauli.
+
+        With `parametric`, symbolic gates start at angle zero and are recorded as slots, so
+        `rebind` can bind new angles without building the operations again.
+        """
         qml = self._qml
         if any(isinstance(g, Projector) for g in task.operations):
             raise ValueError("LightningBackend executes unitary tasks only")
         mapping = {q: i for i, q in enumerate(task.wires)}
-        operations = []
+        operations, slots, count = [], [], 0
         for gate in task.operations:
-            if isinstance(gate.angle, Parameter):
-                raise ValueError("Cannot lower unbound parameters")
+            angle = gate.angle
+            if isinstance(angle, Parameter):
+                if not parametric:
+                    raise ValueError("Cannot lower unbound parameters")
+                slots.append((count, angle.name, angle.offset))
+                angle = 0.0
+            if gate.name in ROTATIONS:
+                count += 1
             wires = [mapping[q] for q in gate.qubits]
             if gate.name == "CX":
                 operations.append(qml.CNOT(wires=wires))
@@ -68,10 +80,10 @@ class LightningBackend:
                 operations.append(qml.CZ(wires=wires))
             elif gate.name == "RZZ":
                 # IsingZZ(phi) = exp(-i phi Z Z / 2), the public RZZ convention.
-                operations.append(qml.IsingZZ(gate.angle, wires=wires))
+                operations.append(qml.IsingZZ(angle, wires=wires))
             elif gate.name in ROTATIONS:
                 # PennyLane shares the public convention R_P(theta) = exp(-i theta P / 2).
-                operations.append(getattr(qml, gate.name)(gate.angle, wires=wires[0]))
+                operations.append(getattr(qml, gate.name)(angle, wires=wires[0]))
             else:
                 operations.append(self._fixed[gate.name](wires=wires[0]))
         measurements = []
@@ -80,7 +92,15 @@ class LightningBackend:
             observable = factors[0] if len(factors) == 1 else qml.prod(*factors)
             measurements.append(qml.expval(observable))
         tape = qml.tape.QuantumScript(operations, measurements)
-        return LightningLowered(tape, tuple(range(len(measurements))), task.width)
+        return LightningLowered(tape, tuple(range(len(measurements))), task.width, tuple(slots))
+
+    @staticmethod
+    def rebind(lowered, values):
+        """Replace the tape by one with the new angles; the operations are reused."""
+        lowered.tape = lowered.tape.bind_new_parameters(
+            [values[name] + offset for _, name, offset in lowered.slots],
+            [index for index, _, _ in lowered.slots],
+        )
 
     def evolve(self, lowered):
         """Execute the tape on the device for its width and keep its expectation values."""
