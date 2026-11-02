@@ -6,7 +6,7 @@ from time import perf_counter_ns
 from .cache import PlanningCache
 from .cost import CalibratedCostModel
 from .ir import Request
-from .passes import cone_indices
+from .passes import commuting_cone, cone_indices
 from .plan import Candidate, Plan, Task
 from .rewrites import ZXOptions, optimizer_identity, rewrite_programs
 from .sums import expand_requests
@@ -44,14 +44,22 @@ class _Analysis:
     optimization_ns: int = 0
 
 
-def _analyze(requests, strategy, symbolic=False):
-    """Build unoptimized full, separate, or causal-cone candidates."""
+CONES = ("support", "commuting")
+
+
+def _analyze(requests, strategy, symbolic=False, cones="support"):
+    """Build unoptimized full, separate, or causal-cone candidates.
+
+    ``cones="support"`` keeps every gate that touches a live wire. ``"commuting"`` also drops
+    gates that leave the observable unchanged (see `lazyqc.passes.commuting_cone`).
+    """
     # Cone membership depends only on gate wires, so it is computed once per
     # topology and observable support. Grouping keys pair an interned circuit
     # shape with concrete angles: equal keys mean equal retained circuits.
-    full_slots, full_groups, cone_groups = {}, [], {}
+    full_slots, full_groups, cone_groups, support_groups = {}, [], {}, {}
     separate, constants = [], []
-    programs, layouts, cones, shapes = {}, {}, {}, {}
+    programs, layouts, shapes = {}, {}, {}
+    support_cones, commuting_cones = {}, {}
     for index, request in enumerate(requests):
         program = request.program
         known = programs.get(id(program))
@@ -75,13 +83,42 @@ def _analyze(requests, strategy, symbolic=False):
                 if slot == len(full_groups):
                     full_groups.append((tuple(range(program.n_qubits)), operations, []))
             full_groups[slot][2].append(output)
-        if strategy != "full":
+        if strategy != "full" and cones == "commuting":
+            factors = request.observable.factors
+            cone = commuting_cones.get((layout, factors))
+            if cone is None:
+                wires, retained = commuting_cone(shape_ops, factors)
+                shape = (wires, tuple(shape_ops[i] for i in retained))
+                cone = commuting_cones[(layout, factors)] = (
+                    wires,
+                    retained,
+                    shapes.setdefault(shape, len(shapes)),
+                )
+            wires, retained, shape = cone
+            if strategy in ("separate", "auto"):
+                key = (shape, tuple(angles[i] for i in retained))
+                group = cone_groups.get(key)
+                if group is None:
+                    group = cone_groups[key] = (wires, tuple(operations[i] for i in retained), [])
+                separate.append(Task(group[0], group[1], (output,)))
+            if strategy in ("grouped", "auto"):
+                # Outputs on one support share a task even when their letters drop different
+                # gates: the union of their cones is exact for each and no wider than the
+                # support cone, so X, Y and Z on a wire still cost one evolution.
+                union = support_groups.setdefault(
+                    (layout, angles, tuple(q for q, _ in factors)),
+                    (set(), set(), [], operations, shape_ops),
+                )
+                union[0].update(wires)
+                union[1].update(retained)
+                union[2].append(output)
+        elif strategy != "full":
             support = tuple(q for q, _ in request.observable.factors)
-            cone = cones.get((layout, support))
+            cone = support_cones.get((layout, support))
             if cone is None:
                 wires, retained = cone_indices(tuple(q for _, q in shape_ops), support)
                 shape = (wires, tuple(shape_ops[i] for i in retained))
-                cone = cones[(layout, support)] = (
+                cone = support_cones[(layout, support)] = (
                     wires,
                     retained,
                     shapes.setdefault(shape, len(shapes)),
@@ -106,7 +143,22 @@ def _analyze(requests, strategy, symbolic=False):
     if strategy in ("separate", "auto"):
         candidates.append(Candidate("separate", tuple(separate)))
     if strategy in ("grouped", "auto"):
-        candidates.append(Candidate("grouped", grouped_tasks(cone_groups.values())))
+        if cones == "commuting":
+            # Unions that came out as the same circuit (equal gates and angles) share a task.
+            merged = {}
+            for (_, angles, _), (wires, retained, outputs, operations, shape_ops) in (
+                support_groups.items()
+            ):
+                retained = tuple(sorted(retained))
+                shape = (tuple(sorted(wires)), tuple(shape_ops[i] for i in retained))
+                entry = merged.setdefault(
+                    (shape, tuple(angles[i] for i in retained)),
+                    (tuple(sorted(wires)), tuple(operations[i] for i in retained), []),
+                )
+                entry[2].extend(outputs)
+            candidates.append(Candidate("grouped", grouped_tasks(merged.values())))
+        else:
+            candidates.append(Candidate("grouped", grouped_tasks(cone_groups.values())))
     return _Analysis(tuple(candidates), tuple(constants))
 
 
@@ -165,9 +217,9 @@ def _analysis_budget(requests, max_state_qubits, max_state_bytes):
     }
 
 
-def _analyze_optimized(requests, strategy, optimization, options):
+def _analyze_optimized(requests, strategy, optimization, options, cones="support"):
     """Add distinct locally or ZX-rewritten candidates to the baseline analysis."""
-    baseline = _analyze(requests, strategy)
+    baseline = _analyze(requests, strategy, False, cones)
     if optimization == "none":
         return baseline
     local, zx, records, elapsed = rewrite_programs(requests, optimization, options)
@@ -177,7 +229,7 @@ def _analyze_optimized(requests, strategy, optimization, options):
             continue
         if name == "zx" and (optimization != "zx" or zx == local):
             continue
-        additional = _analyze(batch, strategy)
+        additional = _analyze(batch, strategy, False, cones)
         for c in additional.candidates:
             # Keep cheaper unoptimized/local representatives when structures coincide.
             if not any(
@@ -297,6 +349,7 @@ def plan_all(
     select=None,
     analysis="budgeted",
     symbolic=False,
+    cones="support",
 ) -> Plan:
     """Plan requests under strategy, resource, cache, and optimization constraints.
 
@@ -319,6 +372,13 @@ def plan_all(
             joint search and keeps the least predicted execution cost, charging
             both searches; it requires ``cutting.expected_collections`` and a
             calibrated cost model.
+        cones: ``support`` (default) keeps every gate that touches a live wire of an
+            observable's backward cone. ``commuting`` also drops gates that act as the
+            identity on every operator the observable can have become at that point, such
+            as a CX whose control carries only Z. Values are identical; the plan can be
+            narrower, but outputs with different Pauli letters share fewer tasks, so it pays
+            on shallow circuits and loses on others. It does not combine with cutting or
+            batch options.
         symbolic: Allow programs with unbound `Parameter` angles. The plan then depends
             on structure only, and ``plan.collect(bindings=...)`` supplies the angles, so
             one plan serves every step of a training loop. Optimization and batch
@@ -351,6 +411,7 @@ def plan_all(
             select=select,
             analysis=analysis,
             symbolic=symbolic,
+            cones=cones,
         )
         return SumPlan(inner, layout)
     if symbolic and (
@@ -363,6 +424,12 @@ def plan_all(
         raise ValueError(
             "symbolic planning does not support optimization, cutting, batch or cost-model options"
         )
+    if cones not in CONES:
+        raise ValueError(f"Unknown cones {cones!r}; choose from {CONES}")
+    if cones == "commuting" and (
+        cutting is not None or workers != 1 or total_state_bytes is not None
+    ):
+        raise ValueError("cones='commuting' does not support cutting or batch options")
     if select is not None and select != "lifetime":
         raise ValueError("select must be None or 'lifetime'")
     if select == "lifetime" and cutting is None and workers == 1 and total_state_bytes is None:
@@ -427,19 +494,19 @@ def plan_all(
         analysis = _analyze(requests, "full", symbolic)
     elif cache is None:
         analysis = (
-            _analyze(requests, analysed, True)
+            _analyze(requests, analysed, True, cones)
             if symbolic
-            else _analyze_optimized(requests, analysed, optimization, options)
+            else _analyze_optimized(requests, analysed, optimization, options, cones)
         )
     else:
-        key = (_cache_key(requests, analysed), optimization, options, identity, symbolic)
+        key = (_cache_key(requests, analysed), optimization, options, identity, symbolic, cones)
         analysis = cache._get(key)
         cache_status = "hit" if analysis is not None else "miss"
         if analysis is None:
             analysis = (
-                _analyze(requests, analysed, True)
+                _analyze(requests, analysed, True, cones)
                 if symbolic
-                else _analyze_optimized(requests, analysed, optimization, options)
+                else _analyze_optimized(requests, analysed, optimization, options, cones)
             )
             cache._put(key, analysis)
     candidates = list(analysis.candidates)
