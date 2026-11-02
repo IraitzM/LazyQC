@@ -10,6 +10,14 @@ gate set (H, X, Y, Z, RX, RY, RZ, CX); other operations are decomposed.
 Device derivatives run the two-term shift rule inside LazyQC and emit shifted
 requests only for parameters inside the causal cone of an observable term;
 all other entries are structural zeros and are counted in ``last_stats``.
+
+A QNode evaluated repeatedly (a training loop) sends the same tape structure with new
+angles. From the second sight of a structure the device keeps a symbolic plan
+(`plan_all(symbolic=True)`) and passes the angles as ``bindings``, so later calls skip
+program construction, cone analysis, planning and lowering. Values equal the fresh-plan
+path exactly; ``last_stats["plan_reused"]`` reports it. Options that need numeric angles
+(``optimization``, ``cutting``, ``workers``, ``total_state_bytes``, ``cost_model``) keep
+the fresh-plan path.
 """
 
 from dataclasses import replace
@@ -33,8 +41,10 @@ except ImportError as exc:  # pragma: no cover - exercised only without the extr
         "The LazyQC PennyLane device needs PennyLane: pip install 'lazyqc[pennylane]'"
     ) from exc
 
-from ..ir import Gate, Program
-from ..planner import plan_all
+from ..ir import Gate, Parameter, Program
+from ..planner import plan_all, symbolic_compatible
+
+_PLAN_CACHE = 4
 
 _PL_TO_IR = {
     "Hadamard": "H",
@@ -97,6 +107,8 @@ class LazyQubit(Device):
         super().__init__(wires=wires, shots=shots)
         self._plan_options = plan_options
         self.last_stats = {}
+        self._plans = {}  # tape-batch structure -> (symbolic plan, layout, stats), oldest first
+        self._once = {}  # structures seen once, oldest first; a repeat earns a symbolic plan
 
     def supports_derivatives(self, execution_config=None, circuit=None) -> bool:
         """Device derivatives (cone-restricted shift rule) for first-order gradients."""
@@ -169,13 +181,72 @@ class LazyQubit(Device):
         return n, ops, measurements, slots
 
     @staticmethod
-    def _program(n, ops, shift=None):
+    def _program(n, ops, shift=None, prefix=None):
+        """Build the IR program; with `prefix`, rotation angles become named parameters."""
         gates = []
         for i, (name, qubits, angle) in enumerate(ops):
+            if prefix is not None and angle is not None:
+                angle = Parameter(f"{prefix}{i}")
             if shift is not None and shift[0] == i:
-                angle += shift[1]
+                angle = angle.shifted(shift[1]) if prefix is not None else angle + shift[1]
             gates.append(Gate(name, qubits, angle))
         return Program(n, tuple(gates))
+
+    @staticmethod
+    def _structure(translated, extra=()):
+        """Return a hashable key for everything about a tape batch except its angles."""
+        return (
+            tuple(
+                (
+                    n,
+                    tuple((name, qubits, angle is not None) for name, qubits, angle in ops),
+                    tuple(tuple(terms) for terms in measurements),
+                )
+                for n, ops, measurements, _ in translated
+            ),
+            extra,
+        )
+
+    @staticmethod
+    def _bindings(translated):
+        """Return ``{name: angle}`` for the rotation angles of every tape."""
+        return {
+            f"{t}.{i}": angle
+            for t, (_, ops, _, _) in enumerate(translated)
+            for i, (_, _, angle) in enumerate(ops)
+            if angle is not None
+        }
+
+    def _evaluate(self, translated, key, build):
+        """Return ``(values, layout, stats)`` for the requests ``build(prefixes)`` creates.
+
+        `build(symbolic)` returns ``(requests, layout, stats)``. The first sight of a structure
+        takes the fresh-plan path; a repeat builds a symbolic plan that later calls reuse.
+        """
+        if not symbolic_compatible(self._plan_options):
+            requests, layout, stats = build(False)
+            return self._collect(requests), layout, {**stats, "plan_reused": False}
+        entry = self._plans.pop(key, None)
+        if entry is not None:
+            self._plans[key] = entry  # most recently used goes last
+            plan, layout, stats = entry
+            values = list(plan.collect(bindings=self._bindings(translated)).values) if plan else []
+            return values, layout, {**stats, "plan_reused": True}
+        if key not in self._once:
+            self._once[key] = None
+            while len(self._once) > 4 * _PLAN_CACHE:
+                self._once.pop(next(iter(self._once)))
+            requests, layout, stats = build(False)
+            return self._collect(requests), layout, {**stats, "plan_reused": False}
+        self._once.pop(key)
+        requests, layout, stats = build(True)
+        plan = plan_all(requests, symbolic=True, **self._plan_options) if requests else None
+        self._plans[key] = (plan, layout, stats)
+        while len(self._plans) > _PLAN_CACHE:
+            self._plans.pop(next(iter(self._plans)))
+        bindings = self._bindings(translated)
+        values = list(plan.collect(bindings=bindings).values) if plan else []
+        return values, layout, {**stats, "plan_reused": False}
 
     def _collect(self, requests):
         if not requests:
@@ -187,20 +258,24 @@ class LazyQubit(Device):
         """Evaluate every tape of the batch in a single plan."""
         single = not isinstance(circuits, (list, tuple))
         circuits = [circuits] if single else list(circuits)
-        requests, layout = [], []
-        for tape in circuits:
-            n, ops, measurements, _ = self._translate(tape)
-            program = self._program(n, ops)
-            per_measurement = []
-            for terms in measurements:
-                per_term = []
-                for factors, coeff in terms:
-                    per_term.append((len(requests), coeff))
-                    requests.append(program.expectation(dict(factors)))
-                per_measurement.append(per_term)
-            layout.append(per_measurement)
-        values = self._collect(requests)
-        self.last_stats = {"tapes": len(circuits), "requests": len(requests)}
+        translated = [self._translate(tape) for tape in circuits]
+
+        def build(symbolic):
+            requests, layout = [], []
+            for t, (n, ops, measurements, _) in enumerate(translated):
+                program = self._program(n, ops, prefix=f"{t}." if symbolic else None)
+                per_measurement = []
+                for terms in measurements:
+                    per_term = []
+                    for factors, coeff in terms:
+                        per_term.append((len(requests), coeff))
+                        requests.append(program.expectation(dict(factors)))
+                    per_measurement.append(per_term)
+                layout.append(per_measurement)
+            return requests, layout, {"tapes": len(circuits), "requests": len(requests)}
+
+        values, layout, stats = self._evaluate(translated, self._structure(translated), build)
+        self.last_stats = stats
         results = []
         for per_measurement in layout:
             out = tuple(sum(c * values[i] for i, c in terms) for terms in per_measurement)
@@ -212,51 +287,55 @@ class LazyQubit(Device):
         """Jacobians via the shift rule, skipping parameters outside every cone."""
         single = not isinstance(circuits, (list, tuple))
         circuits = [circuits] if single else list(circuits)
-        requests, layout, skipped, total = [], [], 0, 0
-        for tape in circuits:
-            n, ops, measurements, slots = self._translate(tape)
-            trainable = list(tape.trainable_params)
-            cones = [
-                [_in_cone(ops, [q for q, _ in factors]) for factors, _ in terms]
-                for terms in measurements
-            ]
-            per_param = []
-            for p in trainable:
-                if p not in slots:
-                    raise ValueError(
-                        "lazyqc.qubit differentiates only RX, RY and RZ parameters; "
-                        "other trainable parameters must be decomposed first"
-                    )
-                position = slots[p]
-                plus = self._program(n, ops, (position, pi / 2))
-                minus = self._program(n, ops, (position, -pi / 2))
-                per_measurement = []
-                for terms, term_cones in zip(measurements, cones):
-                    entries = []
-                    for (factors, coeff), cone in zip(terms, term_cones):
-                        total += 1
-                        if not cone[position]:
-                            skipped += 1
-                            continue
-                        obs = dict(factors)
-                        entries.append(
-                            (
-                                len(requests),
-                                coeff,
-                            )
+        translated = [self._translate(tape) for tape in circuits]
+        trainable = tuple(tuple(tape.trainable_params) for tape in circuits)
+
+        def build(symbolic):
+            requests, layout, skipped, total = [], [], 0, 0
+            for t, (n, ops, measurements, slots) in enumerate(translated):
+                prefix = f"{t}." if symbolic else None
+                cones = [
+                    [_in_cone(ops, [q for q, _ in factors]) for factors, _ in terms]
+                    for terms in measurements
+                ]
+                per_param = []
+                for p in trainable[t]:
+                    if p not in slots:
+                        raise ValueError(
+                            "lazyqc.qubit differentiates only RX, RY and RZ parameters; "
+                            "other trainable parameters must be decomposed first"
                         )
-                        requests.append(plus.expectation(obs))
-                        requests.append(minus.expectation(obs))
-                    per_measurement.append(entries)
-                per_param.append(per_measurement)
-            layout.append((len(measurements), per_param))
-        values = self._collect(requests)
-        self.last_stats = {
-            "tapes": len(circuits),
-            "requests": len(requests),
-            "shift_terms": total,
-            "skipped_structural_zeros": skipped,
-        }
+                    position = slots[p]
+                    plus = self._program(n, ops, (position, pi / 2), prefix)
+                    minus = self._program(n, ops, (position, -pi / 2), prefix)
+                    per_measurement = []
+                    for terms, term_cones in zip(measurements, cones):
+                        entries = []
+                        for (factors, coeff), cone in zip(terms, term_cones):
+                            total += 1
+                            if not cone[position]:
+                                skipped += 1
+                                continue
+                            obs = dict(factors)
+                            entries.append((len(requests), coeff))
+                            requests.append(plus.expectation(obs))
+                            requests.append(minus.expectation(obs))
+                        per_measurement.append(entries)
+                    per_param.append(per_measurement)
+                layout.append((len(measurements), per_param))
+            stats = {
+                "tapes": len(circuits),
+                "requests": len(requests),
+                "shift_terms": total,
+                "skipped_structural_zeros": skipped,
+            }
+            return requests, layout, stats
+
+        # Parameter indices map to operations through the slots, which ignored operations shift.
+        slot_map = tuple(tuple(sorted(slots.items())) for _, _, _, slots in translated)
+        key = self._structure(translated, ("derivatives", trainable, slot_map))
+        values, layout, stats = self._evaluate(translated, key, build)
+        self.last_stats = stats
         results = []
         for n_meas, per_param in layout:
             by_measurement = []

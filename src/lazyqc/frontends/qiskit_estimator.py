@@ -10,6 +10,13 @@ Values are exact. A ``precision`` above zero adds Gaussian noise to the exact
 values, as ``StatevectorEstimator`` does; the plan is still chosen for exact
 simulation and nothing is sampled from a distribution.
 
+Repeated jobs: training loops send the same circuit and observables with new parameter
+values. The Estimator keeps a symbolic plan per job structure (`plan_all(symbolic=True)`) and
+passes the values as ``bindings``, so later jobs skip circuit construction, planning and
+lowering. Values equal the fresh-plan path exactly. Options that need numeric angles
+(``optimization``, ``cutting``, ``workers``, ``total_state_bytes``, ``cost_model``) keep the
+fresh-plan path.
+
 Performance note: ``collect`` runs Qulacs on one thread when every task is narrower than
 ``lazyqc.threads.SMALL_TASK_QUBITS`` and caps the team for wider ones (``native_threads="auto"``).
 Pass ``collect_options={"native_threads": "default"}`` to leave Qulacs' team alone.
@@ -21,11 +28,12 @@ from qiskit.primitives.containers import DataBin
 from qiskit.primitives.containers.estimator_pub import EstimatorPub
 
 from ..ir import Pauli, PauliSum, SumRequest
-from ..planner import plan_all
+from ..planner import plan_all, symbolic_compatible
 from .qiskit import ParametricTemplate
 
 _IMAGINARY_TOLERANCE = 1e-12
 _TEMPLATE_CACHE = 8
+_PLAN_CACHE = 4
 
 
 def _pauli_sum(observable, n_qubits):
@@ -73,6 +81,9 @@ class Estimator(BaseEstimatorV2):
         self._plan_options = dict(plan_options or {})
         self._collect_options = dict(collect_options or {})
         self._templates = {}  # id(circuit) -> (private copy, ParametricTemplate), oldest first
+        self._plans = {}  # job structure -> (templates, symbolic plan), oldest first
+        self._once = {}  # job structures seen once, oldest first; a repeat earns a symbolic plan
+        self.last_job = {}
 
     @property
     def default_precision(self) -> float:
@@ -95,27 +106,68 @@ class Estimator(BaseEstimatorV2):
 
     def _run(self, pubs):
         """Plan every PUB together, collect once, and split the values by PUB."""
-        requests, layouts = [], []
         seen = {}  # circuits cannot change during a run, so each is validated once per job
-        for pub in pubs:
-            layout = self._requests_for(pub, seen)
-            layouts.append((layout[0], len(layout[1])))
-            requests.extend(layout[1])
+        prepared = [self._prepare(pub, seen) for pub in pubs]
+        counts = [len(item["sums_at"]) for item in prepared]
         values, plan_info = (), {}
-        if requests:
-            plan = plan_all(requests, **self._plan_options)
-            values = plan.collect(**self._collect_options).values
+        if sum(counts):
+            if symbolic_compatible(self._plan_options):
+                plan, values, reused = self._collect_symbolic(prepared)
+            else:
+                requests = [r for item in prepared for r in self._requests(item)]
+                plan = plan_all(requests, **self._plan_options)
+                values, reused = plan.collect(**self._collect_options).values, False
             plan_info = {
                 "selected_strategy": plan.selected.strategy,
                 "tasks": len(plan.selected.tasks),
-                "requests": len(requests),
+                "requests": sum(counts),
+                "plan_reused": reused,
             }
+        self.last_job = plan_info
         results, start = [], 0
-        for pub, (shape, count) in zip(pubs, layouts, strict=True):
-            evs = np.asarray(values[start : start + count], dtype=np.float64).reshape(shape)
+        for pub, item, count in zip(pubs, prepared, counts, strict=True):
+            evs = np.asarray(values[start : start + count], dtype=np.float64).reshape(item["shape"])
             start += count
             results.append(self._pub_result(pub, evs))
         return PrimitiveResult(results, metadata={"version": 2, "lazyqc": plan_info})
+
+    def _collect_symbolic(self, prepared):
+        """Collect a job through a cached symbolic plan, building it on first sight."""
+        key = tuple(
+            (id(item["template"]), item["sums"], item["shape"], item["row_ids"].tobytes())
+            for item in prepared
+        )
+        templates = tuple(item["template"] for item in prepared)
+        entry = self._plans.pop(key, None)
+        reused = entry is not None and all(a is b for a, b in zip(entry[0], templates, strict=True))
+        if not reused:
+            if key not in self._once:
+                # First sight of this structure: a one-off job should not pay for a plan that
+                # is never reused, so it takes the fresh-plan path and only remembers the key.
+                self._once[key] = templates
+                while len(self._once) > 4 * _PLAN_CACHE:
+                    self._once.pop(next(iter(self._once)))
+                requests = [r for item in prepared for r in self._requests(item)]
+                plan = plan_all(requests, **self._plan_options)
+                return plan, plan.collect(**self._collect_options).values, False
+            self._once.pop(key)
+            requests = []
+            for number, item in enumerate(prepared):
+                programs = {
+                    row: item["template"].symbolic_program(f"{number}.{row}:")
+                    for row in item["used"]
+                }
+                requests.extend(self._requests(item, programs))
+            entry = (templates, plan_all(requests, symbolic=True, **self._plan_options))
+        self._plans[key] = entry  # most recently used goes last
+        while len(self._plans) > _PLAN_CACHE:
+            self._plans.pop(next(iter(self._plans)))
+        bindings = {}
+        for number, item in enumerate(prepared):
+            for row in item["used"]:
+                bindings.update(item["template"].slot_values(item["flat"][row], f"{number}.{row}:"))
+        plan = entry[1]
+        return plan, plan.collect(bindings=bindings, **self._collect_options).values, reused
 
     def _template_for(self, circuit, seen):
         """Translate a circuit once and reuse it while it stays unchanged.
@@ -134,17 +186,17 @@ class Estimator(BaseEstimatorV2):
         seen[id(circuit)] = entry[1]
         return entry[1]
 
-    def _requests_for(self, pub, seen):
-        """Return ``(shape, requests)`` for one PUB, in C order over its broadcast shape."""
+    def _prepare(self, pub, seen):
+        """Validate one PUB and return what both planning paths need, in C order."""
         circuit, shape = pub.circuit, pub.shape
         template = self._template_for(circuit, seen)
         observables = pub.observables
         if observables.num_qubits != circuit.num_qubits:
             raise ValueError("Observables and circuit act on different numbers of qubits")
-        sums = [
+        sums = tuple(
             _pauli_sum(observables[index], circuit.num_qubits)
             for index in np.ndindex(*observables.shape)
-        ]
+        )
         sum_ids = np.broadcast_to(np.arange(len(sums)).reshape(observables.shape), shape)
         if template.parameters:
             rows = pub.parameter_values.as_array(template.parameters)
@@ -153,14 +205,28 @@ class Estimator(BaseEstimatorV2):
             flat = rows.reshape(-1, rows.shape[-1])
         else:
             row_ids, flat = np.zeros(shape, dtype=int), [()]
-        programs = {}
-        requests = []
-        for index in np.ndindex(*shape):
-            row = int(row_ids[index])
-            if row not in programs:
-                programs[row] = template.program(flat[row])
-            requests.append(SumRequest(programs[row], sums[int(sum_ids[index])]))
-        return shape, requests
+        return {
+            "shape": shape,
+            "template": template,
+            "sums": sums,
+            "flat": flat,
+            "row_ids": np.ascontiguousarray(row_ids),
+            "sums_at": [int(sum_ids[index]) for index in np.ndindex(*shape)],
+            "rows_at": [int(row_ids[index]) for index in np.ndindex(*shape)],
+            "used": sorted(set(int(r) for r in row_ids.flat)),
+        }
+
+    @staticmethod
+    def _requests(item, programs=None):
+        """Return the requests of one PUB; numeric programs are built per row when not given."""
+        if programs is None:
+            programs = {}
+            for row in item["used"]:
+                programs[row] = item["template"].program(item["flat"][row])
+        return [
+            SumRequest(programs[row], item["sums"][s])
+            for row, s in zip(item["rows_at"], item["sums_at"], strict=True)
+        ]
 
     def _pub_result(self, pub, evs):
         """Attach emulated noise when the PUB asks for a precision above zero."""
