@@ -6,7 +6,7 @@ in an environment without ``qiskit-aer``. Nothing is imported or allocated until
 the adapter is constructed.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from math import isfinite
 
 from ..instruments import Projector
@@ -19,6 +19,10 @@ class AerLowered:
     circuit: object
     observables: tuple[str, ...]
     width: int
+    # Symbolic names in the circuit, the Qiskit parameter of each, and the angles `rebind` set.
+    slots: tuple = ()
+    symbols: dict = field(default_factory=dict)
+    binds: dict = field(default_factory=dict)
 
 
 class AerBackend:
@@ -42,28 +46,38 @@ class AerBackend:
             "precision": "complex128",
         }
 
-    def lower(self, task):
-        """Lower a unitary task into an Aer circuit that saves each requested expectation."""
+    def lower(self, task, *, parametric=False):
+        """Lower a unitary task into an Aer circuit that saves each requested expectation.
+
+        With `parametric`, symbolic angles become Qiskit parameters (``name + offset``) and
+        `rebind` sets their values for the next run, so the circuit is built once.
+        """
         from qiskit import QuantumCircuit
+        from qiskit.circuit import Parameter as QiskitParameter
         from qiskit.quantum_info import SparsePauliOp
 
         if any(isinstance(g, Projector) for g in task.operations):
             raise ValueError("AerBackend executes unitary tasks only")
         circuit = QuantumCircuit(task.width)
         mapping = {q: i for i, q in enumerate(task.wires)}
+        symbols = {}
         for gate in task.operations:
-            if isinstance(gate.angle, Parameter):
-                raise ValueError("Cannot lower unbound parameters")
+            angle = gate.angle
+            if isinstance(angle, Parameter):
+                if not parametric:
+                    raise ValueError("Cannot lower unbound parameters")
+                symbol = symbols.setdefault(angle.name, QiskitParameter(angle.name))
+                angle = symbol + angle.offset if angle.offset else symbol
             qs = [mapping[q] for q in gate.qubits]
             if gate.name == "CX":
                 circuit.cx(*qs)
             elif gate.name == "CZ":
                 circuit.cz(*qs)
             elif gate.name == "RZZ":
-                circuit.rzz(gate.angle, *qs)
+                circuit.rzz(angle, *qs)
             elif gate.name in ROTATIONS:
                 # Qiskit shares the public convention R_P(theta) = exp(-i theta P / 2).
-                getattr(circuit, gate.name.lower())(gate.angle, qs[0])
+                getattr(circuit, gate.name.lower())(angle, qs[0])
             else:
                 getattr(circuit, gate.name.lower())(qs[0])
         labels = []
@@ -74,11 +88,19 @@ class AerBackend:
             )
             labels.append(f"o{k}")
             circuit.save_expectation_value(operator, range(task.width), label=labels[-1])
-        return AerLowered(circuit, tuple(labels), task.width)
+        return AerLowered(circuit, tuple(labels), task.width, tuple(symbols), symbols)
+
+    @staticmethod
+    def rebind(lowered, values):
+        """Set the angles the next run binds into a parametric circuit."""
+        lowered.binds.clear()
+        for name, symbol in lowered.symbols.items():
+            lowered.binds[symbol] = [values[name]]
 
     def evolve(self, lowered):
         """Run the circuit; the simulator allocates, evolves and evaluates on its device."""
-        result = self.simulator.run(lowered.circuit).result()
+        binds = [dict(lowered.binds)] if lowered.symbols else None
+        result = self.simulator.run(lowered.circuit, parameter_binds=binds).result()
         self.counters.allocations += 1
         self.counters.evolutions += 1
         if not result.success:

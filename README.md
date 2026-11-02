@@ -136,8 +136,9 @@ for step in range(steps):
 
 Shifts are offsets of the same parameter (`Parameter("p0").shifted(pi / 2)`), so one plan
 serves every step and values equal planning from scratch. A symbolic plan lowers each task
-once into a Qulacs parametric circuit and only sets the new angles afterwards; backends
-without `rebind` bind each task instead. Symbolic planning does not combine with
+once and only sets the new angles afterwards on the Qulacs, Aer and Lightning backends (a
+parametric circuit, Qiskit parameter binds and a rebound tape); backends without `rebind`,
+such as quimb, bind and lower each task instead. Symbolic planning does not combine with
 optimization, cutting or batch options. See `examples/08_plan_once_training.py`.
 
 The Qiskit `Estimator` and the PennyLane device do this for you. When the same circuit
