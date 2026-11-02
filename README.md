@@ -167,6 +167,27 @@ print(result[0].data.evs)
 Values are exact; a `precision` above zero adds Gaussian noise to them as
 `StatevectorEstimator` does. See `examples/06_qiskit_estimator_qnn.py` for a training loop timed against Aer.
 
+### Placing wide tasks on a GPU
+
+`plan.collect(wide_backend=..., wide_from=w)` runs every task of at least `w` qubits on the wide
+backend (for example `AerBackend` or `LightningBackend` on a GPU) and the narrower ones on
+Qulacs. The best `w` depends on the device, the driver and the CPU, so measure it on your host
+instead of reusing a constant:
+
+```python
+from lazyqc import calibrate_crossover
+from lazyqc.backends.aer import AerBackend
+
+gpu = AerBackend(device="GPU")
+wide_from, report = calibrate_crossover(gpu, gates=40)   # takes about a second
+result = plan.collect(wide_backend=gpu, wide_from=wide_from)
+```
+
+`gates` should be close to the size of your tasks, because a GPU pays a launch cost per gate:
+the crossover was 15 or 16 qubits for tasks of 10 gates and 14 or 15 for 160 gates on a laptop
+RTX 4060. The device matters more than the threshold: on that host Lightning GPU was 1.8 to 2.8
+times slower than Aer GPU on 22 to 24 qubit tasks, so compare both before settling.
+
 ### Native threads
 
 Qulacs uses one OpenMP thread per core by default, which is slower than a single thread on the
