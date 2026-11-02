@@ -265,6 +265,22 @@ def _plan_lifetime(requests, cutting, **options):
     )
 
 
+def symbolic_compatible(options) -> bool:
+    """Return whether `plan_all` keyword `options` allow ``symbolic=True``.
+
+    Frontends that cache a symbolic plan use this to keep the fresh-plan path for options
+    that need numeric angles (optimization, cutting, batch execution, a cost model).
+    """
+    return (
+        options.get("optimization", "none") == "none"
+        and options.get("cutting") is None
+        and options.get("workers", 1) == 1
+        and options.get("total_state_bytes") is None
+        and options.get("cost_model") is None
+        and options.get("select") is None
+    )
+
+
 def plan_all(
     requests,
     *,

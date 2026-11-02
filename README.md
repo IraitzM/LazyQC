@@ -136,9 +136,18 @@ for step in range(steps):
 
 Shifts are offsets of the same parameter (`Parameter("p0").shifted(pi / 2)`), so one plan
 serves every step and values equal planning from scratch. A symbolic plan lowers each task
-once into a Qulacs parametric circuit and only sets the new angles afterwards; backends
-without `rebind` bind each task instead. Symbolic planning does not combine with
+once and only sets the new angles afterwards on the Qulacs, Aer and Lightning backends (a
+parametric circuit, Qiskit parameter binds and a rebound tape); backends without `rebind`,
+such as quimb, bind and lower each task instead. Symbolic planning does not combine with
 optimization, cutting or batch options. See `examples/08_plan_once_training.py`.
+
+The Qiskit `Estimator` and the PennyLane device do this for you. When the same circuit
+structure arrives a second time (an `EstimatorQNN` training step, a QNode called in a loop),
+they keep a symbolic plan and pass the new values as bindings. The first job of a structure
+takes the usual path, so one-off jobs pay nothing, and at most four plans are kept per
+estimator or device. Values equal the fresh-plan path exactly. The Estimator reports
+`result.metadata["lazyqc"]["plan_reused"]` and the device `dev.last_stats["plan_reused"]`;
+`optimization`, `cutting`, `workers`, `total_state_bytes` and `cost_model` keep the usual path.
 
 ### Qiskit Estimator
 

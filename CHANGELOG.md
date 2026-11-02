@@ -1,3 +1,10 @@
+## v0.5.0 (2026-11-02)
+
+### Feat
+
+- **backends**: rebind angles on Aer and Lightning
+- **frontends**: plan once in the Qiskit Estimator and the PennyLane device
+
 ## v0.4.0 (2026-11-01)
 
 ### Feat

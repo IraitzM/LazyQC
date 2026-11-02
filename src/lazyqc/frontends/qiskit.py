@@ -19,7 +19,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from math import pi
 
-from ..ir import GATES, Gate, Program
+from ..ir import GATES, Gate, Parameter, Program
 
 _BASIS_IR = {name.lower(): name for name in sorted(GATES)}
 _DROPPED = ("barrier",)
@@ -250,6 +250,44 @@ class ParametricTemplate:
             elif source[0] == "value":
                 fixed = Gate(_BASIS_IR[name], qubits, source[1])
             self._gates.append((_BASIS_IR[name], qubits, source, fixed))
+        # One name per distinct free angle: circuit parameters keep their position, derived
+        # expressions share a name when they print alike. Symbolic programs use these names.
+        self._slots, derived = [], {}
+        for _, _, source, _ in self._gates:
+            if source is None or source[0] == "value":
+                self._slots.append(None)
+            elif source[0] == "plain":
+                self._slots.append(f"p{source[1]}")
+            else:
+                self._slots.append(derived.setdefault(str(source[1]), f"e{len(derived)}"))
+        self._expressions = {}
+        for (_, _, source, _), slot in zip(self._gates, self._slots, strict=True):
+            if slot is not None and source[0] == "expression":
+                self._expressions.setdefault(slot, source)
+        self._plain = sorted(
+            {int(s[1:]) for s in self._slots if s is not None and s.startswith("p")}
+        )
+
+    def symbolic_program(self, prefix=""):
+        """Return the program with free angles as `Parameter`s named ``prefix + slot``.
+
+        Equal for every row of values, so one plan serves them all; `slot_values(row, prefix)`
+        gives the numbers to pass as ``bindings`` in `collect`.
+        """
+        operations = []
+        for (name, qubits, _, fixed), slot in zip(self._gates, self._slots, strict=True):
+            if fixed is None:
+                fixed = Gate(name, qubits, Parameter(prefix + slot))
+            operations.append(fixed)
+        return Program(self.n_qubits, tuple(operations))
+
+    def slot_values(self, row, prefix=""):
+        """Return ``{name: angle}`` for one row, matching `symbolic_program(prefix)`."""
+        values = {f"{prefix}p{i}": _wrap_angle(row[i]) for i in self._plain}
+        for slot, source in self._expressions.items():
+            bound = source[1].bind({p: float(row[i]) for p, i in source[2]})
+            values[prefix + slot] = _wrap_angle(bound)
+        return values
 
     def program(self, row=()):
         """Return the IR program for one row of parameter values."""
