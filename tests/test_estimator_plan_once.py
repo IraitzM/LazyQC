@@ -8,10 +8,10 @@ from qiskit import QuantumCircuit  # noqa: E402
 from qiskit.circuit import Parameter  # noqa: E402
 from qiskit.primitives import StatevectorEstimator  # noqa: E402
 from qiskit.quantum_info import SparsePauliOp  # noqa: E402
+from test_qiskit_estimator import ansatz, random_observables  # noqa: E402
 
 from lazyqc.frontends import qiskit_estimator  # noqa: E402
 from lazyqc.frontends.qiskit import Estimator  # noqa: E402
-from tests.test_qiskit_estimator import ansatz, random_observables  # noqa: E402
 
 
 class Counter:
