@@ -66,7 +66,7 @@ def test_cone_local_adjoint_and_weighted_parameter_gradient_match_shifts():
 
 
 def test_auto_selects_adjoint_per_cone_when_it_reduces_state_sweeps():
-    p = Program(2).ry(0, 0.2).rz(0, -0.3).ry(1, 0.4)
+    p = Program(2).ry(0, 0.2).rx(0, -0.3).ry(1, 0.4)
     profile = profile_sensitivity(
         p, [{0: "Z"}, {1: "Z"}], [0, 1, 2], evaluation_error=1e-12, method="auto"
     )
@@ -89,7 +89,7 @@ def test_auto_selects_adjoint_per_cone_when_it_reduces_state_sweeps():
     ],
 )
 def test_adjoint_respects_planner_state_limits(method, limits):
-    p = Program(2).ry(0, 0.2).cx(0, 1).rz(1, 0.3)
+    p = Program(2).ry(0, 0.2).cx(0, 1).ry(1, 0.3)
     with pytest.raises(NoFeasiblePlan, match="Adjoint task"):
         profile_sensitivity(
             p, [{1: "Z"}], [0, 2], evaluation_error=1e-12, method=method, **limits

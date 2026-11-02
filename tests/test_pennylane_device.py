@@ -57,7 +57,7 @@ def test_decomposition_chain_rule_and_structural_zeros():
     a = qml.QNode(f, dev, diff_method="best")
     b = qml.QNode(f, ref, diff_method="backprop")
     assert np.allclose(qml.grad(a)(w), qml.grad(b)(w), atol=1e-10)
-    assert dev.last_stats["skipped_structural_zeros"] == 3
+    assert dev.last_stats["skipped_structural_zeros"] == 4
     assert np.allclose(qml.grad(a)(w)[3:], 0.0)
 
 

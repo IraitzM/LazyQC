@@ -42,6 +42,7 @@ except ImportError as exc:  # pragma: no cover - exercised only without the extr
     ) from exc
 
 from ..ir import Gate, Parameter, Program
+from ..passes import commuting_cone
 from ..planner import plan_all, symbolic_compatible
 
 _PLAN_CACHE = 4
@@ -79,14 +80,12 @@ def _scalar(value) -> float:
     return float(np.asarray(qml.math.unwrap(value)).reshape(()))
 
 
-def _in_cone(ops, support):
-    """Flags for operations in the backward causal cone of ``support`` wires."""
-    active, flags = set(support), [False] * len(ops)
-    for i in range(len(ops) - 1, -1, -1):
-        wires = set(ops[i][1])
-        if wires & active:
-            flags[i] = True
-            active |= wires
+def _in_cone(ops, factors):
+    """Flags for operations in the backward cone of the Pauli `factors`."""
+    _, retained = commuting_cone([(name, qubits) for name, qubits, _ in ops], factors)
+    flags = [False] * len(ops)
+    for i in retained:
+        flags[i] = True
     return flags
 
 
@@ -295,7 +294,7 @@ class LazyQubit(Device):
             for t, (n, ops, measurements, slots) in enumerate(translated):
                 prefix = f"{t}." if symbolic else None
                 cones = [
-                    [_in_cone(ops, [q for q, _ in factors]) for factors, _ in terms]
+                    [_in_cone(ops, factors) for factors, _ in terms]
                     for terms in measurements
                 ]
                 per_param = []
