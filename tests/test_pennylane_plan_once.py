@@ -65,7 +65,7 @@ def test_derivatives_reuse_the_plan_and_keep_structural_zeros():
     for step in range(4):
         w = pnp.array(np.random.default_rng(step).uniform(-3, 3, 6), requires_grad=True)
         assert np.allclose(qml.grad(a)(w), qml.grad(b)(w), atol=1e-10)
-        assert dev.last_stats["skipped_structural_zeros"] == 3
+        assert dev.last_stats["skipped_structural_zeros"] == 4
     assert dev.last_stats["plan_reused"] is True
 
 

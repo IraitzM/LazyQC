@@ -116,6 +116,22 @@ hamiltonian = program.expectation([
 print(plan_all([hamiltonian]).collect().values)  # one value for the whole sum
 ```
 
+### Commutation-aware cones
+
+By default the backward cone of an observable keeps every gate that touches a live wire. With
+`plan_all(requests, cones="commuting")` LazyQC also tracks which Pauli letters each wire can
+carry and drops gates that leave the operator unchanged: a CX whose control carries only `Z`,
+an `RZ` on a wire carrying only `Z`, and so on. The rules depend on gate names and wires, never
+on angles, so values are identical and the analysis stays structure-keyed.
+
+The cones are narrower (about 5% on average over the hardware-efficient, QCNN-like,
+re-uploading, tree and strongly-entangling families, 16% at depth 2, none from depth 16), but
+outputs whose cones used to coincide now share fewer tasks, so the option is neutral on
+average: faster on shallow tree-like and re-uploading circuits, slower on some others. Measure
+your workload before switching it on. Derivative profiling (`profile_sensitivity`, the adjoint
+gradient and the PennyLane device) always uses the commuting cone, because a shift outside it
+has an exactly zero derivative and needs no evaluation.
+
 ### Training loops: plan once, rebind at every step
 
 Training repeats one circuit structure with new angles. Free the angles with
@@ -167,6 +183,27 @@ print(result[0].data.evs)
 Values are exact; a `precision` above zero adds Gaussian noise to them as
 `StatevectorEstimator` does. See `examples/06_qiskit_estimator_qnn.py` for a training loop timed against Aer.
 
+### Placing wide tasks on a GPU
+
+`plan.collect(wide_backend=..., wide_from=w)` runs every task of at least `w` qubits on the wide
+backend (for example `AerBackend` or `LightningBackend` on a GPU) and the narrower ones on
+Qulacs. The best `w` depends on the device, the driver and the CPU, so measure it on your host
+instead of reusing a constant:
+
+```python
+from lazyqc import calibrate_crossover
+from lazyqc.backends.aer import AerBackend
+
+gpu = AerBackend(device="GPU")
+wide_from, report = calibrate_crossover(gpu, gates=40)   # takes about a second
+result = plan.collect(wide_backend=gpu, wide_from=wide_from)
+```
+
+`gates` should be close to the size of your tasks, because a GPU pays a launch cost per gate:
+the crossover was 15 or 16 qubits for tasks of 10 gates and 14 or 15 for 160 gates on a laptop
+RTX 4060. The device matters more than the threshold: on that host Lightning GPU was 1.8 to 2.8
+times slower than Aer GPU on 22 to 24 qubit tasks, so compare both before settling.
+
 ### Native threads
 
 Qulacs uses one OpenMP thread per core by default, which is slower than a single thread on the
@@ -213,8 +250,8 @@ If you use LazyQC in your research, please cite the accompanying paper (see also
 
 ```bibtex
 @article{montalban2026lazyqc,
-  title   = {LazyQC: Lazy Planning for Batched Quantum Result Queries},
-  author  = {Montalb{\'a}n, Iraitz},
+  title   = {LazyQC: Avoiding Simulation Work in Batched Quantum Expectation Workloads},
+  author  = {Montalb{\'a}n, Iraitz and Combarro, El{\'i}as F. and Ranilla, Jos{\'e}},
   year    = {2026},
   note    = {arXiv preprint; journal and DOI to be added upon publication}
 }

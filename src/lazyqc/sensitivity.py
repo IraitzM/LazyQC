@@ -13,6 +13,7 @@ from math import fsum, isfinite, pi
 from time import perf_counter_ns
 
 from .ir import ROTATIONS, Parameter, Program, finite_angle
+from .passes import commuting_cone
 from .planner import NoFeasiblePlan, plan_all, validate_limits
 
 
@@ -26,13 +27,8 @@ def _nonnegative(value, name):
 
 def _cone_indices(operations, observable):
     """Return operation indices in the observable's backward structural cone."""
-    active = {q for q, _ in observable.factors}
-    indices = set()
-    for i in reversed(range(len(operations))):
-        if active.intersection(operations[i].qubits):
-            indices.add(i)
-            active.update(operations[i].qubits)
-    return indices
+    _, retained = commuting_cone(tuple((g.name, g.qubits) for g in operations), observable.factors)
+    return set(retained)
 
 
 @dataclass(frozen=True)
