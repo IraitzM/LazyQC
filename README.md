@@ -234,8 +234,8 @@ If you use LazyQC in your research, please cite the accompanying paper (see also
 
 ```bibtex
 @article{montalban2026lazyqc,
-  title   = {LazyQC: Lazy Planning for Batched Quantum Result Queries},
-  author  = {Montalb{\'a}n, Iraitz},
+  title   = {LazyQC: Avoiding Simulation Work in Batched Quantum Expectation Workloads},
+  author  = {Montalb{\'a}n, Iraitz and Combarro, El{\'i}as F. and Ranilla, Jos{\'e}},
   year    = {2026},
   note    = {arXiv preprint; journal and DOI to be added upon publication}
 }

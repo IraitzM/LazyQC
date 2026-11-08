@@ -10,6 +10,12 @@ authors:
   - family-names: "Montalbán"
     given-names: "Iraitz"
     affiliation: "University of Oviedo"
+  - family-names: "Combarro"
+    given-names: "Elías F."
+    affiliation: "University of Oviedo"
+  - family-names: "Ranilla"
+    given-names: "José"
+    affiliation: "University of Oviedo"
 keywords:
   - quantum circuit simulation
   - lazy evaluation
@@ -22,6 +28,12 @@ preferred-citation:
   authors:
     - family-names: "Montalbán"
       given-names: "Iraitz"
+      affiliation: "University of Oviedo"
+    - family-names: "Combarro"
+      given-names: "Elías F."
+      affiliation: "University of Oviedo"
+    - family-names: "Ranilla"
+      given-names: "José"
       affiliation: "University of Oviedo"
   year: 2026
   # TODO: add journal, volume and doi once the paper is published
