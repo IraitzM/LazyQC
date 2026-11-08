@@ -9,7 +9,11 @@ description = "Lazy, observable-driven quantum simulation with Qulacs"
 readme = "README.md"
 license = "Apache-2.0"
 license-files = ["LICENSE"]
-authors = [{ name = "Iraitz Montalbán" }]
+authors = [
+    { name = "Iraitz Montalbán" },
+    { name = "Elías F. Combarro" },
+    { name = "José Ranilla" },
+]
 requires-python = ">=3.12"
 dependencies = [
     "numpy>=2,<3",

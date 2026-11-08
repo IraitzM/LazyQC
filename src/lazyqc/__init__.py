@@ -35,6 +35,7 @@ from .cost import CalibratedCostModel
 from .cutting import CutOptions
 from .ir import Gate, Parameter, Pauli, PauliSum, Program, Request, SumRequest
 from .isolation import PlanningResourceError, plan_isolated
+from .placement import calibrate_crossover
 from .planner import NoFeasiblePlan, plan_all
 from .rewrites import ZXOptions
 from .sensitivity import adjoint_gradient, parameter_shift_requests, profile_sensitivity
@@ -47,6 +48,7 @@ __all__ = [
     "CutOptions",
     "BatchCostModel",
     "calibrate_batch",
+    "calibrate_crossover",
     "ZXOptions",
     "PlanningCache",
     "CalibratedCostModel",
