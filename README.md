@@ -12,7 +12,7 @@
   <a href="https://github.com/IraitzM/LazyQC/stargazers"><img src="https://img.shields.io/github/stars/IraitzM/LazyQC?style=social" alt="GitHub stars"></a>
 </p>
 
-LazyQC is a Python framework for lazy, observable-driven quantum simulation. You describe programs and request expectation values first; LazyQC plans the batch (observable cones, shared preparations, ZX rewrites, and exact CX cuts under memory limits) and only runs the native [Qulacs](https://github.com/qulacs/qulacs) simulation when you call `collect()`.
+LazyQC is a Python framework for lazy, observable-driven quantum simulation. You describe programs and request expectation values first; LazyQC plans the batch (observable cones, shared preparations, ZX rewrites, and exact CX cuts under memory limits) and only runs the selected backend when you call `collect()` (Qulacs by default).
 
 ## Installation
 
@@ -22,7 +22,7 @@ Requires Python 3.12 or newer. With [uv](https://docs.astral.sh/uv/):
 uv add lazyqc
 ```
 
-Optional extras: `zx` (PyZX rewrites), `cutting` (exact CX cuts, Qiskit frontend), `tensor` and `mqt` (alternative backends for benchmarking).
+Optional extras: `zx` (PyZX rewrites), `cutting` (exact CX cuts, Qiskit frontend), `tensor`, `mqt` and `qsim` (alternative backends for benchmarking).
 
 ### PennyLane device
 
@@ -152,8 +152,8 @@ for step in range(steps):
 
 Shifts are offsets of the same parameter (`Parameter("p0").shifted(pi / 2)`), so one plan
 serves every step and values equal planning from scratch. A symbolic plan lowers each task
-once and only sets the new angles afterwards on the Qulacs, Aer and Lightning backends (a
-parametric circuit, Qiskit parameter binds and a rebound tape); backends without `rebind`,
+once and only sets the new angles afterwards on the Qulacs, Aer, Lightning and QSim backends
+(a parametric circuit, Qiskit parameter binds and a rebound tape); backends without `rebind`,
 such as quimb, bind and lower each task instead. Symbolic planning does not combine with
 optimization, cutting or batch options. See `examples/08_plan_once_training.py`.
 
@@ -212,6 +212,25 @@ OpenMP libraries in the same process, such as Aer. `plan.collect()` therefore ru
 when every task is narrower than 14 qubits, and caps the team at 8 threads for wider tasks. The
 setting used is reported in `result.stats.native_threads`. Pass
 `collect(native_threads="default")` to keep Qulacs' own team, or an integer to fix its size.
+
+### Google QSim
+
+Install `qsimcirq` and Cirq with `pip install "lazyqc[qsim]"`, then pass an optional
+QSim backend to `collect()`:
+
+```python
+from lazyqc.backends.qsim import QSimBackend
+
+result = plan.collect(backend=QSimBackend(threads=8))
+```
+
+QSim is a deterministic statevector simulator, but its Python distribution uses single
+precision (`complex64`), with numerical residuals around `1e-6`; the backend tests allow
+`1e-4` tolerance for accumulated error. `threads` sets its CPU thread count; it is
+separate from `collect(native_threads=...)`, which controls Qulacs. QSim supports
+unitary tasks only, so it cannot run projector tasks introduced by circuit cutting.
+Measure your own workload: narrow causal cones may not benefit from QSim's wider-state
+optimizations.
 
 ## Gradients
 

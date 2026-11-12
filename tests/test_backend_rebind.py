@@ -104,3 +104,47 @@ def test_tasks_without_symbolic_gates_carry_no_slots(make):
     plan = plan_all([Program(2).h(0).cx(0, 1).expectation({1: "Z"})])
     lowered = backend.lower(plan.selected.tasks[0], parametric=True)
     assert not lowered.slots
+
+
+def test_qsim_rebinds_rzz_and_reuses_the_lowered_circuit():
+    pytest.importorskip("qsimcirq")
+    from lazyqc.backends.qsim import QSimBackend
+
+    theta = Parameter("theta")
+    program = (
+        Program(3).ry(0, theta).cx(0, 1).rzz(1, 2, theta.shifted(0.4)).rx(2, theta.shifted(-1.1))
+    )
+    plan = plan_all(
+        [program.expectation({1: "Z"}), program.expectation({2: "Y"})],
+        symbolic=True,
+        strategy="full",
+    )
+    backend = QSimBackend(threads=1)
+    calls = count_lowerings(backend)
+
+    for value in (0.3, -1.2, 2.5):
+        got = plan.collect(backend=backend, bindings={"theta": value}).values
+        want = plan.collect(backend=QulacsBackend(), bindings={"theta": value}).values
+        np.testing.assert_allclose(got, want, atol=1e-4)
+
+    assert len(calls) == len(plan.selected.tasks) == 1
+    assert calls == [True]
+
+
+def test_qsim_rejects_projector_tasks():
+    pytest.importorskip("qsimcirq")
+    from lazyqc.backends.qsim import QSimBackend
+    from lazyqc.instruments import Projector
+    from lazyqc.plan import Task
+
+    task = Task((0,), (Projector((0,), 1),), ((0, Pauli()),))
+    with pytest.raises(ValueError, match="unitary tasks only"):
+        QSimBackend().lower(task)
+
+
+@pytest.mark.parametrize("threads", [0, -1, 1.5, True])
+def test_qsim_rejects_invalid_thread_counts(threads):
+    from lazyqc.backends.qsim import QSimBackend
+
+    with pytest.raises(ValueError, match="threads"):
+        QSimBackend(threads=threads)

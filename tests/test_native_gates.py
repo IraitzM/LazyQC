@@ -118,6 +118,47 @@ def test_every_backend_agrees_with_the_oracle_and_with_translated_forms(name, se
         np.testing.assert_allclose(values, expected, atol=1e-12)
 
 
+def test_qsim_agrees_with_the_oracle_for_native_gates():
+    pytest.importorskip("qsimcirq")
+    from lazyqc.backends.qsim import QSimBackend
+
+    backend = QSimBackend(threads=1)
+    assert backend.capabilities()["precision"] == "complex64"
+    native = random_program(5, 25, 0)
+    translated = random_program(5, 25, 0, native=False)
+    expected = oracle_values(native, OBSERVABLES)
+
+    for program in (native, translated):
+        requests = [program.expectation(observable) for observable in OBSERVABLES]
+        result = plan_all(requests, strategy="full").collect(backend=backend)
+        np.testing.assert_allclose(result.values, expected, atol=1e-4)
+
+
+def test_qsim_supports_every_lazyqc_gate():
+    pytest.importorskip("qsimcirq")
+    from lazyqc.backends.qsim import QSimBackend
+
+    program = (
+        Program(3)
+        .x(0)
+        .y(1)
+        .z(2)
+        .h(0)
+        .rx(0, 0.2)
+        .ry(1, -0.4)
+        .rz(2, 0.7)
+        .cx(0, 1)
+        .cz(1, 2)
+        .rzz(2, 0, -0.8)
+    )
+    observables = [{0: "Z"}, {1: "X"}, {0: "Y", 2: "Z"}]
+    expected = oracle_values(program, observables)
+    requests = [program.expectation(observable) for observable in observables]
+
+    result = plan_all(requests, strategy="full").collect(backend=QSimBackend(threads=1))
+    np.testing.assert_allclose(result.values, expected, atol=1e-4)
+
+
 def test_cone_follows_both_wires_of_a_native_two_qubit_gate():
     qubits = ((0,), (1,), (0, 1), (2,))
     wires, retained = cone_indices(qubits, [0])

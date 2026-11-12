@@ -49,6 +49,10 @@ tensor = [
     "cotengra>=0.7,<1",
     "quimb>=1.11,<2",
 ]
+qsim = [
+    "qsimcirq>=0.21,<0.23",
+    "cirq-core>=1.4,<2",
+]
 mqt = [
     # Mutually compatible series: mqt-ddsim 2.6 requires mqt-core <3.11,
     # so Core v4 QIR features are out of scope for this extra.
