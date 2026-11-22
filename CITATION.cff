@@ -1,7 +1,7 @@
 cff-version: 1.2.0
 message: "If you use LazyQC in your research, please cite the paper below."
 title: "LazyQC"
-abstract: "Lazy, observable-driven quantum simulation and batch planning with Qulacs."
+abstract: "Variational quantum algorithms generate batches of expectation-value requests across observables, data examples and parameter shifts. Existing causal-cone reductions optimize individual requests but may repeat analysis and simulation across a batch. LazyQC schedules these requests using structure-keyed cone analysis, grouping of identical bound reduced circuits, an analysis-aware dense fallback and width-based CPU/GPU placement. For a 3,220-request Jacobian workload, LazyQC reduces analysis time from 6.22 s to 22.8 ms and total time from 6.98 s to 128 ms relative to per-request Qiskit LightCone reduction with deduplication and Aer GPU execution. At 28 qubits it outperforms direct GPU simulation by factors of 51–95 on an H100 for two depth-four local circuit families. At 128 logical qubits, narrow-cone batches complete in 12–35 ms versus 206–274 ms for a shared untruncated matrix-product state. Overall, LazyQC can achieve substantial speedups over direct simulation when the computational savings outweigh the analysis overhead."
 type: software
 version: 0.5.0
 license: Apache-2.0
@@ -18,13 +18,13 @@ authors:
     affiliation: "University of Oviedo"
 keywords:
   - quantum circuit simulation
-  - lazy evaluation
-  - query planning
-  - circuit cutting
-  - ZX-calculus
+  - quantum machine learning
+  - high-performance computing
+  - causal cones
+  - batch scheduling
 preferred-citation:
   type: article
-  title: "LazyQC: Avoiding Simulation Work in Batched Quantum Expectation Workloads"
+  title: "LazyQC: cost-aware scheduling of batched quantum-expectation simulation for quantum machine learning"
   authors:
     - family-names: "Montalbán"
       given-names: "Iraitz"
@@ -36,4 +36,5 @@ preferred-citation:
       given-names: "José"
       affiliation: "University of Oviedo"
   year: 2026
-  # TODO: add journal, volume and doi once the paper is published
+  doi: "10.5281/zenodo.24440027"
+  url: "https://doi.org/10.5281/zenodo.24440027"

@@ -250,9 +250,10 @@ If you use LazyQC in your research, please cite the accompanying paper (see also
 
 ```bibtex
 @article{montalban2026lazyqc,
-  title   = {LazyQC: Avoiding Simulation Work in Batched Quantum Expectation Workloads},
+  title   = {LazyQC: cost-aware scheduling of batched quantum-expectation simulation for quantum machine learning},
   author  = {Montalb{\'a}n, Iraitz and Combarro, El{\'i}as F. and Ranilla, Jos{\'e}},
   year    = {2026},
-  note    = {arXiv preprint; journal and DOI to be added upon publication}
+  doi     = {10.5281/zenodo.24440027},
+  url     = {https://doi.org/10.5281/zenodo.24440027}
 }
 ```
